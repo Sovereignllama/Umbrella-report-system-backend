@@ -362,6 +362,26 @@ export async function archiveFile(
 }
 
 /**
+ * Rename a file in SharePoint (without moving it)
+ */
+export async function renameFile(
+  fileId: string,
+  newFileName: string
+): Promise<void> {
+  try {
+    const client = await getGraphClient();
+
+    await client.patch(
+      `/drives/${SHAREPOINT_DRIVE_ID}/items/${fileId}`,
+      { name: newFileName }
+    );
+  } catch (error) {
+    console.error('Failed to rename file:', error);
+    throw new Error('Failed to rename file');
+  }
+}
+
+/**
  * Delete file from SharePoint
  */
 export async function deleteFile(fileId: string): Promise<void> {

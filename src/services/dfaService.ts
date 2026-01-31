@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import { DailyReport } from '../types/database';
-import { ReportLaborLineRepository, ReportEquipmentLineRepository } from '../repositories';
-import { readFileByPath, listFilesInFolder, uploadFile, getOrCreateFolder, archiveFile } from './sharepointService';
+import { ReportLaborLineRepository, ReportEquipmentLineRepository, DailyReportRepository } from '../repositories';
+import { readFileByPath, listFilesInFolder, uploadFile, getOrCreateFolder, archiveFile, renameFile } from './sharepointService';
 import * as XLSX from 'xlsx';
 
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
@@ -159,12 +159,21 @@ async function loadDfaTemplate(clientName: string): Promise<ExcelJS.Workbook> {
 /**
  * Generate DFA number
  */
-function generateDfaNumber(clientName: string, reportDate: Date, reportId: string): string {
-  const year = reportDate.getFullYear();
-  const month = String(reportDate.getMonth() + 1).padStart(2, '0');
-  const day = String(reportDate.getDate()).padStart(2, '0');
-  const shortId = reportId.substring(0, 4).toUpperCase();
-  return `${clientName}-${year}${month}${day}-${shortId}`;
+/**
+ * Get sequential DFA number for a project
+ * Counts existing reports for the client/project and returns next number
+ */
+async function getSequentialDfaNumber(clientName: string, projectName: string): Promise<number> {
+  const existingReports = await DailyReportRepository.findByClientProject(clientName, projectName);
+  return existingReports.length;
+}
+
+/**
+ * Format date as "Jan 31, 2026"
+ */
+function formatDateForDfa(date: Date): string {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }
 
 /**
@@ -174,9 +183,13 @@ export async function generateDfaExcel(
   report: DailyReport,
   _supervisorName: string
 ): Promise<{ buffer: Buffer; fileName: string; dfaNumber: string; totalCost: number }> {
-  if (!report.clientName) {
-    throw new Error('Report must have a client name');
+  if (!report.clientName || !report.projectName) {
+    throw new Error('Report must have a client name and project name');
   }
+  
+  // Get sequential DFA number for this project
+  const sequentialNumber = await getSequentialDfaNumber(report.clientName, report.projectName);
+  const dfaNumber = `DFA-${sequentialNumber}`;
   
   // Load template and rates
   const [workbook, skillRates, equipmentRates] = await Promise.all([
@@ -190,11 +203,13 @@ export async function generateDfaExcel(
   const equipmentLines = await ReportEquipmentLineRepository.findByReportId(report.id);
   
   const sheet = workbook.worksheets[0];
-  const dfaNumber = generateDfaNumber(report.clientName, new Date(report.reportDate), report.id);
   
-  // Format date
+  // Format date for display in Excel (MM/DD/YYYY)
   const reportDate = new Date(report.reportDate);
   const formattedDate = `${reportDate.getMonth() + 1}/${reportDate.getDate()}/${reportDate.getFullYear()}`;
+  
+  // Format date for filename (Jan 31, 2026)
+  const formattedDateForFilename = formatDateForDfa(reportDate);
   
   // Fill header cells (based on template layout)
   // Row 1: Date (H1), Job Name (H2), Client (H3), DFA Number (H5)
@@ -266,7 +281,8 @@ export async function generateDfaExcel(
   
   // Generate buffer
   const buffer = await workbook.xlsx.writeBuffer();
-  const fileName = `DFA_${dfaNumber}.xlsx`;
+  // Filename format: "Jan 31, 2026 - Anode Hauling - DFA-1.xlsx"
+  const fileName = `${formattedDateForFilename} - ${report.projectName} - ${dfaNumber}.xlsx`;
   
   return {
     buffer: Buffer.from(buffer),
@@ -339,8 +355,14 @@ export async function generateAggregateReport(
   let grandTotalLabor = 0;
   let grandTotalEquipment = 0;
   
+  // Sort reports by date to ensure consistent DFA numbering
+  const sortedReports = [...reports].sort((a, b) => 
+    new Date(a.reportDate).getTime() - new Date(b.reportDate).getTime()
+  );
+  
   // Process each report
-  for (const report of reports) {
+  for (let idx = 0; idx < sortedReports.length; idx++) {
+    const report = sortedReports[idx];
     const laborLines = await ReportLaborLineRepository.findByReportId(report.id);
     const equipmentLines = await ReportEquipmentLineRepository.findByReportId(report.id);
     
@@ -364,11 +386,13 @@ export async function generateAggregateReport(
       }
     }
     
-    const dfaNumber = generateDfaNumber(clientName, new Date(report.reportDate), report.id);
+    // Use sequential DFA number (1-based index)
+    const dfaNumber = `DFA-${idx + 1}`;
     const reportDate = new Date(report.reportDate);
+    const formattedDate = formatDateForDfa(reportDate);
     
     sheet.addRow({
-      dfaNumber,
+      dfaNumber: `${formattedDate} - ${report.projectName} - ${dfaNumber}`,
       date: `${reportDate.getMonth() + 1}/${reportDate.getDate()}/${reportDate.getFullYear()}`,
       project: report.projectName,
       laborCost,
@@ -434,7 +458,7 @@ export async function uploadAggregateToSharePoint(
 /**
  * Archive a DFA when report is deleted
  * Moves the DFA from the week folder to Archive folder under the project
- * Renames with format: Date - Project - DFA#
+ * Adds "(Old)" to the filename and renumbers remaining DFAs
  */
 export async function archiveDfaToSharePoint(
   report: DailyReport
@@ -445,18 +469,22 @@ export async function archiveDfaToSharePoint(
       return;
     }
     
-    // Generate the DFA filename to find it
-    const dfaNumber = generateDfaNumber(report.clientName, new Date(report.reportDate), report.id);
-    const dfaFileName = `DFA_${dfaNumber}.xlsx`;
+    // Format date to match the filename format used when uploading
+    const reportDate = new Date(report.reportDate);
+    const formattedDate = formatDateForDfa(reportDate);
+    
+    // The DFA filename starts with "Jan 31, 2026 - ProjectName - DFA-"
+    const filePrefix = `${formattedDate} - ${report.projectName} - DFA-`;
     
     // Get the week folder and find the DFA file
     const weekFolderPath = `projects/${report.clientName}/${report.projectName}/${report.weekFolder}`;
     const files = await listFilesInFolder(weekFolderPath);
     
-    const dfaFile = files.find(f => f.name === dfaFileName);
+    // Find files that match this report's date and project
+    const dfaFile = files.find(f => f.name.startsWith(filePrefix) && f.name.endsWith('.xlsx'));
     
     if (!dfaFile) {
-      console.log(`DFA file not found in SharePoint: ${dfaFileName}`);
+      console.log(`DFA file not found in SharePoint with prefix: ${filePrefix}`);
       return;
     }
     
@@ -466,20 +494,80 @@ export async function archiveDfaToSharePoint(
     const projectFolder = await getOrCreateFolder(clientFolder.folderId, report.projectName);
     const archiveFolder = await getOrCreateFolder(projectFolder.folderId, 'Archive');
     
-    // Format the date nicely (e.g., "Jan 31, 2026")
-    const reportDate = new Date(report.reportDate);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const formattedDate = `${months[reportDate.getMonth()]} ${reportDate.getDate()}, ${reportDate.getFullYear()}`;
+    // Create new filename with "(Old)" suffix
+    // "Jan 31, 2026 - Anode Hauling - DFA-1.xlsx" -> "Jan 31, 2026 - Anode Hauling - DFA-1 (Old).xlsx"
+    const newFileName = dfaFile.name.replace('.xlsx', ' (Old).xlsx');
     
-    // Create new filename: "Date - Project - DFA#.xlsx"
-    const newFileName = `${formattedDate} - ${report.projectName} - ${dfaNumber}.xlsx`;
-    
-    // Move the DFA to Archive folder with new name
+    // Move the DFA to Archive folder with "(Old)" suffix
     await archiveFile(dfaFile.id, archiveFolder.folderId, newFileName);
     
-    console.log(`Archived DFA ${dfaFileName} as ${newFileName}`);
+    console.log(`Archived DFA ${dfaFile.name} as ${newFileName}`);
+    
+    // Now renumber all remaining DFAs for this project
+    await renumberProjectDfas(report.clientName, report.projectName);
+    
   } catch (error) {
     console.error('Error archiving DFA:', error);
     // Don't throw - we still want the report delete to succeed even if archive fails
+  }
+}
+
+/**
+ * Renumber all DFAs in a project after one is deleted
+ * Finds all DFA files across all week folders and renumbers them sequentially by date
+ */
+async function renumberProjectDfas(
+  clientName: string,
+  projectName: string
+): Promise<void> {
+  try {
+    // Get all remaining reports for this project (sorted by date)
+    const reports = await DailyReportRepository.findByClientProject(clientName, projectName);
+    const sortedReports = reports.sort((a, b) => 
+      new Date(a.reportDate).getTime() - new Date(b.reportDate).getTime()
+    );
+    
+    console.log(`Renumbering ${sortedReports.length} DFAs for ${clientName}/${projectName}`);
+    
+    // For each report, find and rename its DFA
+    for (let i = 0; i < sortedReports.length; i++) {
+      const report = sortedReports[i];
+      if (!report.weekFolder) continue;
+      
+      const reportDate = new Date(report.reportDate);
+      const formattedDate = formatDateForDfa(reportDate);
+      const expectedNumber = i + 1; // 1-based
+      
+      // Find the DFA file in the week folder
+      const weekFolderPath = `projects/${clientName}/${projectName}/${report.weekFolder}`;
+      const files = await listFilesInFolder(weekFolderPath);
+      
+      // Look for a DFA file matching this date and project
+      const filePrefix = `${formattedDate} - ${projectName} - DFA-`;
+      const dfaFile = files.find(f => f.name.startsWith(filePrefix) && f.name.endsWith('.xlsx') && !f.name.includes('(Old)'));
+      
+      if (!dfaFile) {
+        console.log(`DFA file not found for report ${report.id} in ${weekFolderPath}`);
+        continue;
+      }
+      
+      // Extract current DFA number from filename
+      const match = dfaFile.name.match(/DFA-(\d+)\.xlsx$/);
+      if (!match) continue;
+      
+      const currentNumber = parseInt(match[1], 10);
+      
+      // Only rename if number needs to change
+      if (currentNumber !== expectedNumber) {
+        const newFileName = `${formattedDate} - ${projectName} - DFA-${expectedNumber}.xlsx`;
+        await renameFile(dfaFile.id, newFileName);
+        console.log(`Renamed ${dfaFile.name} to ${newFileName}`);
+      }
+    }
+    
+    console.log('DFA renumbering complete');
+  } catch (error) {
+    console.error('Error renumbering DFAs:', error);
+    // Don't throw - this is a best-effort operation
   }
 }
