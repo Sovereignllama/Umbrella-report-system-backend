@@ -266,6 +266,7 @@ router.post(
           }
         } catch (dfaError) {
           console.error('Error generating/uploading DFA:', dfaError);
+          console.error('DFA Error details:', dfaError instanceof Error ? dfaError.message : String(dfaError));
           // Don't fail the request, just log the error
         }
       }
