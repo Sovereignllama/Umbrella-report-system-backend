@@ -434,6 +434,7 @@ export async function uploadAggregateToSharePoint(
 /**
  * Archive a DFA when report is deleted
  * Moves the DFA from the week folder to Archive folder under the project
+ * Renames with format: Date - Project - DFA#
  */
 export async function archiveDfaToSharePoint(
   report: DailyReport
@@ -465,10 +466,18 @@ export async function archiveDfaToSharePoint(
     const projectFolder = await getOrCreateFolder(clientFolder.folderId, report.projectName);
     const archiveFolder = await getOrCreateFolder(projectFolder.folderId, 'Archive');
     
-    // Move the DFA to Archive folder
-    await archiveFile(dfaFile.id, archiveFolder.folderId);
+    // Format the date nicely (e.g., "Jan 31, 2026")
+    const reportDate = new Date(report.reportDate);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const formattedDate = `${months[reportDate.getMonth()]} ${reportDate.getDate()}, ${reportDate.getFullYear()}`;
     
-    console.log(`Archived DFA ${dfaFileName} to Archive folder`);
+    // Create new filename: "Date - Project - DFA#.xlsx"
+    const newFileName = `${formattedDate} - ${report.projectName} - ${dfaNumber}.xlsx`;
+    
+    // Move the DFA to Archive folder with new name
+    await archiveFile(dfaFile.id, archiveFolder.folderId, newFileName);
+    
+    console.log(`Archived DFA ${dfaFileName} as ${newFileName}`);
   } catch (error) {
     console.error('Error archiving DFA:', error);
     // Don't throw - we still want the report delete to succeed even if archive fails

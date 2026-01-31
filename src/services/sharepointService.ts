@@ -330,21 +330,30 @@ export async function uploadLargeFile(
 
 /**
  * Archive old report by moving to Archive folder
+ * Optionally rename the file during the move
  */
 export async function archiveFile(
   fileId: string,
-  archiveFolderId: string
+  archiveFolderId: string,
+  newFileName?: string
 ): Promise<void> {
   try {
     const client = await getGraphClient();
 
+    const patchBody: any = {
+      parentReference: {
+        id: archiveFolderId,
+      },
+    };
+    
+    // Optionally rename the file
+    if (newFileName) {
+      patchBody.name = newFileName;
+    }
+
     await client.patch(
       `/drives/${SHAREPOINT_DRIVE_ID}/items/${fileId}`,
-      {
-        parentReference: {
-          id: archiveFolderId,
-        },
-      }
+      patchBody
     );
   } catch (error) {
     console.error('Failed to archive file:', error);
