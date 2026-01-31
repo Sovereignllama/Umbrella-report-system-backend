@@ -287,7 +287,7 @@ export async function uploadDfaToSharePoint(
   fileName: string
 ): Promise<{ fileId: string; webUrl: string }> {
   // Get or create the folder structure
-  const projectsRoot = await getOrCreateFolder(':root:', 'projects');
+  const projectsRoot = await getOrCreateFolder('root', 'projects');
   const clientFolder = await getOrCreateFolder(projectsRoot.folderId, clientName);
   const projectFolder = await getOrCreateFolder(clientFolder.folderId, projectName);
   const weekFolderObj = await getOrCreateFolder(projectFolder.folderId, weekFolder);
@@ -420,7 +420,7 @@ export async function uploadAggregateToSharePoint(
   fileName: string
 ): Promise<{ fileId: string; webUrl: string }> {
   // Get or create the folder structure - upload to project folder, not week
-  const projectsRoot = await getOrCreateFolder(':root:', 'projects');
+  const projectsRoot = await getOrCreateFolder('root', 'projects');
   const clientFolder = await getOrCreateFolder(projectsRoot.folderId, clientName);
   const projectFolder = await getOrCreateFolder(clientFolder.folderId, projectName);
   
