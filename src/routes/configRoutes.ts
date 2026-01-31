@@ -175,22 +175,13 @@ router.get('/current-week', authMiddleware, async (_req: AuthRequest, res: Respo
 
 /**
  * GET /api/config/site-employees
- * Get list of employees from SharePoint config folder
- * Query params: ?client=RTA (optional, for client-specific config)
- * Reads from configurable path (default: Umbrella Report Config/site_employees/)
- * If client is specified, looks in Umbrella Report Config/{client}/site_employees
+ * Get list of employees from SharePoint config folder (GLOBAL - same for all clients)
+ * Reads from configurable path (default: Umbrella Report Config/site_employees.xlsx)
  */
-router.get('/site-employees', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/site-employees', authMiddleware, async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { client } = req.query;
-    
-    // Get config folder path (all config files are in same folder)
-    let configFolder = await getSetting('employeesPath') || DEFAULT_CONFIG_BASE_PATH;
-    
-    // If client is specified, use client-specific subfolder
-    if (client) {
-      configFolder = `${DEFAULT_CONFIG_BASE_PATH}/${client}`;
-    }
+    // Get config folder path - employees are GLOBAL (not client-specific)
+    const configFolder = await getSetting('employeesPath') || DEFAULT_CONFIG_BASE_PATH;
     
     // List files in the folder
     const files = await listFilesInFolder(configFolder);
