@@ -613,7 +613,6 @@ router.get('/employee-skills', authMiddleware, requireAdmin, async (req: AuthReq
     }
     
     // Group by employee for easier frontend consumption
-    const grouped: { employeeName: string; clientName: string; skills: string[] }[] = [];
     const employeeMap = new Map<string, { employeeName: string; clientName: string; skills: string[] }>();
     
     for (const skill of skills) {
@@ -786,7 +785,7 @@ router.post('/inactive-employees', authMiddleware, requireAdmin, async (req: Aut
       return;
     }
     
-    await InactiveEmployeesRepository.setInactive(employeeName, req.user.id);
+    await InactiveEmployeesRepository.setInactive(employeeName, req.user?.id || '');
     res.json({ success: true, message: `${employeeName} marked as inactive` });
   } catch (error) {
     console.error('Error setting employee inactive:', error);
