@@ -42,6 +42,62 @@ export async function testConnection(): Promise<void> {
   }
 }
 
+// Run pending migrations
+export async function runMigrations(): Promise<void> {
+  try {
+    // Create migrations tracking table if it doesn't exist
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id SERIAL PRIMARY KEY,
+        migration_name VARCHAR(255) NOT NULL UNIQUE,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Define migrations in order
+    const migrations = [
+      {
+        name: '007_add_inactive_employees',
+        sql: `
+          CREATE TABLE IF NOT EXISTS inactive_employees (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            employee_name VARCHAR(255) NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_by UUID REFERENCES users(id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_inactive_employees_name 
+          ON inactive_employees(LOWER(employee_name));
+        `
+      }
+    ];
+
+    for (const migration of migrations) {
+      // Check if migration already applied
+      const existing = await pool.query(
+        'SELECT 1 FROM schema_migrations WHERE migration_name = $1',
+        [migration.name]
+      );
+
+      if (existing.rows.length === 0) {
+        console.log(`🔄 Running migration: ${migration.name}`);
+        await pool.query(migration.sql);
+        await pool.query(
+          'INSERT INTO schema_migrations (migration_name) VALUES ($1)',
+          [migration.name]
+        );
+        console.log(`✅ Migration ${migration.name} applied successfully`);
+      } else {
+        console.log(`⏭️  Migration ${migration.name} already applied`);
+      }
+    }
+
+    console.log('✅ All migrations complete');
+  } catch (error) {
+    console.error('❌ Migration failed:', error);
+    throw error;
+  }
+}
+
 // Get client from pool
 export async function getClient(): Promise<PoolClient> {
   return pool.connect();

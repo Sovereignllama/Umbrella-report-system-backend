@@ -1,7 +1,7 @@
 import express, { Express } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { testConnection } from './services/database';
+import { testConnection, runMigrations } from './services/database';
 import { initializeSharePoint } from './services/sharepointService';
 import { startPayrollScheduler } from './services/schedulerService';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -43,6 +43,9 @@ async function startServer() {
   try {
     // Test database connection
     await testConnection();
+
+    // Run pending migrations
+    await runMigrations();
 
     // Initialize SharePoint (optional - skip if not configured)
     try {
