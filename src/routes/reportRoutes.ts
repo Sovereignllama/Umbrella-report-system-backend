@@ -1,0 +1,326 @@
+import { Router, Response } from 'express';
+import { AuthRequest } from '../types/auth';
+import {
+  authMiddleware,
+  requireSupervisor,
+  requireSupervisorOrBoss,
+} from '../middleware';
+import {
+  DailyReportRepository,
+  ProjectRepository,
+  ClientRepository,
+  ReportLaborLineRepository,
+  ReportEquipmentLineRepository,
+} from '../repositories';
+import {
+  archivePreviousReport,
+} from '../services/reportSharePointService';
+
+const router = Router();
+
+// ============================================
+// CHECK FOR EXISTING REPORT
+// ============================================
+
+/**
+ * GET /api/reports/check-existing
+ * Check if a report already exists for a client/project/date combination
+ */
+router.get('/check-existing', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { clientName, projectName, reportDate } = req.query;
+
+    if (!clientName || !projectName || !reportDate) {
+      res.status(400).json({ error: 'clientName, projectName, and reportDate are required' });
+      return;
+    }
+
+    // Look up existing report by client/project/date
+    const existingReport = await DailyReportRepository.findByClientProjectDate(
+      clientName as string,
+      projectName as string,
+      new Date(reportDate as string)
+    );
+
+    if (existingReport) {
+      res.json({ exists: true, reportId: existingReport.id });
+    } else {
+      res.json({ exists: false });
+    }
+  } catch (error) {
+    console.error('Error checking for existing report:', error);
+    res.status(500).json({ error: 'Failed to check for existing report' });
+  }
+});
+
+// ============================================
+// CLIENT AND PROJECT LOOKUPS (for report form)
+// ============================================
+
+/**
+ * GET /api/reports/clients
+ * Get all active clients (for dropdown)
+ */
+router.get('/clients', authMiddleware, async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const clients = await ClientRepository.findAll(true); // activeOnly = true
+    res.json(clients);
+  } catch (error) {
+    console.error('Error fetching clients:', error);
+    res.status(500).json({ error: 'Failed to fetch clients' });
+  }
+});
+
+/**
+ * GET /api/reports/clients/:clientId/projects
+ * Get active projects for a specific client
+ */
+router.get('/clients/:clientId/projects', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { clientId } = req.params;
+    const projects = await ProjectRepository.findByClientId(clientId, true); // activeOnly = true
+    res.json(projects);
+  } catch (error) {
+    console.error('Error fetching client projects:', error);
+    res.status(500).json({ error: 'Failed to fetch projects' });
+  }
+});
+
+/**
+ * POST /api/reports
+ * Submit a new daily report
+ */
+router.post(
+  '/',
+  authMiddleware,
+  requireSupervisor,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const {
+        projectId,
+        clientName,
+        projectName,
+        weekFolder,
+        reportDate,
+        notes,
+        laborLines,
+        equipmentLines,
+        materials,
+        attachments,
+        overwriteExisting: _overwriteExisting,
+      } = req.body;
+
+      // Validate required fields
+      if (!reportDate) {
+        res.status(400).json({ error: 'reportDate is required' });
+        return;
+      }
+
+      // Check if report already exists for this client/project/date
+      let existingReport = null;
+      if (clientName && projectName) {
+        existingReport = await DailyReportRepository.findByClientProjectDate(
+          clientName,
+          projectName,
+          new Date(reportDate)
+        );
+      } else if (projectId) {
+        existingReport = await DailyReportRepository.findByProjectAndDate(
+          projectId,
+          new Date(reportDate)
+        );
+      }
+
+      if (existingReport) {
+        // Archive the old report
+        await DailyReportRepository.archiveReport(existingReport.id);
+
+        // Archive in SharePoint if URL exists
+        if (existingReport.excelSupervisorUrl) {
+          try {
+            const project = await ProjectRepository.findById(projectId);
+            if (project?.sharePointFolderId) {
+              await archivePreviousReport(
+                project.sharePointFolderId,
+                existingReport.excelSupervisorUrl
+              );
+            }
+          } catch (error) {
+            console.warn('Failed to archive SharePoint file:', error);
+          }
+        }
+      }
+
+      // Map labor lines to the expected format
+      const mappedLaborLines = (laborLines || []).map((line: any) => ({
+        employeeId: line.employee_id || line.employeeId,
+        employeeName: line.employee_name || line.employeeName,
+        regularHours: line.regular_hours || line.regularHours || 0,
+        otHours: line.ot_hours || line.otHours || 0,
+        dtHours: line.dt_hours || line.dtHours || 0,
+        workDescription: line.work_description || line.workDescription || '',
+      }));
+
+      // Map equipment lines to the expected format
+      const mappedEquipmentLines = (equipmentLines || []).map((line: any) => ({
+        equipmentId: line.equipment_id || line.equipmentId,
+        equipmentName: line.equipment_name || line.equipmentName,
+        hoursUsed: line.hours_used || line.hoursUsed || 0,
+      }));
+
+      // Check if projectId is a valid UUID, otherwise use null
+      const isValidProjectUuid = projectId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId);
+
+      // Debug logging
+      console.log('Creating report with data:', {
+        projectId: isValidProjectUuid ? projectId : null,
+        clientName,
+        projectName,
+        weekFolder,
+        reportDate,
+        supervisorId: req.user.id,
+        notes,
+        materials,
+        laborLinesCount: mappedLaborLines.length,
+        equipmentLinesCount: mappedEquipmentLines.length,
+      });
+
+      // Create report in database
+      const newReport = await DailyReportRepository.create({
+        projectId: isValidProjectUuid ? projectId : null, // null for SharePoint-based projects without DB record
+        clientName,
+        projectName,
+        weekFolder,
+        reportDate: new Date(reportDate),
+        supervisorId: req.user.id,
+        notes,
+        materials,
+        laborLines: mappedLaborLines,
+        equipmentLines: mappedEquipmentLines,
+        attachments,
+      });
+
+      console.log('Report created:', newReport);
+
+      // Get project details (may not exist for SharePoint-based projects)
+      const project = isValidProjectUuid ? await ProjectRepository.findById(projectId) : null;
+      const displayProjectName = projectName || project?.name || 'Unknown Project';
+
+      // For now, just return success - SharePoint Excel generation will be handled separately
+      // TODO: Generate and upload Excel reports to SharePoint week folder
+      
+      res.status(201).json({
+        id: newReport.id,
+        message: existingReport ? 'Report updated successfully' : 'Report submitted successfully',
+        clientName,
+        projectName: displayProjectName,
+        weekFolder,
+      });
+    } catch (error) {
+      console.error('Error submitting report:', error);
+      if (error instanceof Error) {
+        res.status(500).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: 'Failed to submit report' });
+      }
+    }
+  }
+);
+
+/**
+ * GET /api/reports/:id
+ * Get report details with labor and equipment lines
+ */
+router.get(
+  '/:id',
+  authMiddleware,
+  requireSupervisorOrBoss,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      const report = await DailyReportRepository.findById(id);
+      if (!report) {
+        res.status(404).json({ error: 'Report not found' });
+        return;
+      }
+
+      // Get labor and equipment lines
+      const laborLines = await ReportLaborLineRepository.findByReportId(id);
+      const equipmentLines = await ReportEquipmentLineRepository.findByReportId(id);
+
+      res.json({
+        report,
+        laborLines,
+        equipmentLines
+      });
+    } catch (error) {
+      console.error('Error fetching report:', error);
+      res.status(500).json({ error: 'Failed to fetch report' });
+    }
+  }
+);
+
+/**
+ * GET /api/reports/project/:projectId
+ * Get reports for a project
+ */
+router.get(
+  '/project/:projectId',
+  authMiddleware,
+  requireSupervisorOrBoss,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { projectId } = req.params;
+      const { limit = '30' } = req.query;
+
+      const reports = await DailyReportRepository.findByProject(
+        projectId,
+        parseInt(limit as string)
+      );
+
+      res.json(reports);
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+  }
+);
+
+/**
+ * GET /api/reports
+ * Get reports by date range
+ */
+router.get(
+  '/',
+  authMiddleware,
+  requireSupervisorOrBoss,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { startDate, endDate, projectId } = req.query;
+
+      if (!startDate || !endDate) {
+        res.status(400).json({ error: 'startDate and endDate are required' });
+        return;
+      }
+
+      const reports = await DailyReportRepository.findByDateRange(
+        new Date(startDate as string),
+        new Date(endDate as string),
+        projectId as string
+      );
+
+      res.json(reports);
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+  }
+);
+
+export default router;

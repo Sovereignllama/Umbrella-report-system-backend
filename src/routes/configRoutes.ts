@@ -1,0 +1,432 @@
+import { Router, Response } from 'express';
+import { AuthRequest } from '../types/auth';
+import { authMiddleware } from '../middleware';
+import { listFilesInFolder, readJsonFileByPath, readFileByPath, getOrCreateFolder } from '../services/sharepointService';
+import { getSetting } from './settingsRoutes';
+import * as XLSX from 'xlsx';
+
+const router = Router();
+
+// Default paths (can be overridden via settings)
+const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
+const DEFAULT_PROJECTS_BASE_PATH = 'Projects';
+
+/**
+ * GET /api/config/clients
+ * Get list of clients (folder names under Projects/)
+ */
+router.get('/clients', authMiddleware, async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const clientsPath = await getSetting('clientsPath') || DEFAULT_PROJECTS_BASE_PATH;
+    const folders = await listFilesInFolder(clientsPath);
+    
+    // Filter to only folders (not files)
+    const clients = folders
+      .filter(item => item.folder)
+      .map(folder => ({
+        name: folder.name,
+        id: folder.id,
+      }));
+    
+    res.json(clients);
+  } catch (error) {
+    console.error('Error fetching clients:', error);
+    res.status(500).json({ error: 'Failed to fetch clients from SharePoint' });
+  }
+});
+
+/**
+ * GET /api/config/clients/:clientName/projects
+ * Get list of projects for a client (folder names under Projects/{clientName}/)
+ */
+router.get('/clients/:clientName/projects', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { clientName } = req.params;
+    const clientsPath = await getSetting('clientsPath') || DEFAULT_PROJECTS_BASE_PATH;
+    const folderPath = `${clientsPath}/${clientName}`;
+    
+    const folders = await listFilesInFolder(folderPath);
+    
+    // Filter to only folders
+    const projects = folders
+      .filter(item => item.folder)
+      .map(folder => ({
+        name: folder.name,
+        id: folder.id,
+      }));
+    
+    res.json(projects);
+  } catch (error) {
+    console.error('Error fetching projects:', error);
+    res.status(500).json({ error: 'Failed to fetch projects from SharePoint' });
+  }
+});
+
+/**
+ * GET /api/config/clients/:clientName/projects/:projectName/weeks
+ * Get list of week folders for a project
+ */
+router.get('/clients/:clientName/projects/:projectName/weeks', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { clientName, projectName } = req.params;
+    const clientsPath = await getSetting('clientsPath') || DEFAULT_PROJECTS_BASE_PATH;
+    const folderPath = `${clientsPath}/${clientName}/${projectName}`;
+    
+    const folders = await listFilesInFolder(folderPath);
+    
+    // Filter to only folders
+    const weeks = folders
+      .filter(item => item.folder)
+      .map(folder => ({
+        name: folder.name,
+        id: folder.id,
+      }));
+    
+    res.json(weeks);
+  } catch (error) {
+    console.error('Error fetching weeks:', error);
+    res.status(500).json({ error: 'Failed to fetch week folders from SharePoint' });
+  }
+});
+
+/**
+ * POST /api/config/clients/:clientName/projects/:projectName/weeks
+ * Create a new week folder if it doesn't exist
+ * Body: { weekName: "Feb 2-8" }
+ */
+router.post('/clients/:clientName/projects/:projectName/weeks', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { clientName, projectName } = req.params;
+    const { weekName } = req.body;
+    
+    if (!weekName) {
+      res.status(400).json({ error: 'weekName is required' });
+      return;
+    }
+    
+    // Get the configured path
+    const clientsPath = await getSetting('clientsPath') || DEFAULT_PROJECTS_BASE_PATH;
+    
+    // Get or create the project folder first
+    const projectsFolder = await getOrCreateFolder('root', clientsPath);
+    const clientFolder = await getOrCreateFolder(projectsFolder.folderId, clientName);
+    const projectFolder = await getOrCreateFolder(clientFolder.folderId, projectName);
+    
+    // Create the week folder
+    const weekFolder = await getOrCreateFolder(projectFolder.folderId, weekName);
+    
+    res.json({
+      message: 'Week folder ready',
+      folder: {
+        name: weekName,
+        id: weekFolder.folderId,
+        webUrl: weekFolder.webUrl,
+      },
+    });
+  } catch (error) {
+    console.error('Error creating week folder:', error);
+    res.status(500).json({ error: 'Failed to create week folder in SharePoint' });
+  }
+});
+
+/**
+ * Helper: Get the current week's folder name (Mon-Sun format)
+ * e.g., "Feb 2-8" or "Jan 27-Feb 2"
+ */
+function getCurrentWeekName(): string {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  
+  // Calculate Monday of current week (Sunday = 0, so adjust)
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+  
+  // Calculate Sunday
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  
+  const monMonth = months[monday.getMonth()];
+  const sunMonth = months[sunday.getMonth()];
+  
+  if (monMonth === sunMonth) {
+    // Same month: "Feb 2-8"
+    return `${monMonth} ${monday.getDate()}-${sunday.getDate()}`;
+  } else {
+    // Different months: "Jan 27-Feb 2"
+    return `${monMonth} ${monday.getDate()}-${sunMonth} ${sunday.getDate()}`;
+  }
+}
+
+/**
+ * GET /api/config/current-week
+ * Get the current week folder name
+ */
+router.get('/current-week', authMiddleware, async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const weekName = getCurrentWeekName();
+    res.json({ weekName });
+  } catch (error) {
+    console.error('Error getting current week:', error);
+    res.status(500).json({ error: 'Failed to calculate current week' });
+  }
+});
+
+/**
+ * GET /api/config/site-employees
+ * Get list of employees from SharePoint config folder
+ * Query params: ?client=RTA (optional, for client-specific config)
+ * Reads from configurable path (default: Umbrella Report Config/site_employees/)
+ * If client is specified, looks in Umbrella Report Config/{client}/site_employees
+ */
+router.get('/site-employees', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { client } = req.query;
+    
+    // Get config folder path (all config files are in same folder)
+    let configFolder = await getSetting('employeesPath') || DEFAULT_CONFIG_BASE_PATH;
+    
+    // If client is specified, use client-specific subfolder
+    if (client) {
+      configFolder = `${DEFAULT_CONFIG_BASE_PATH}/${client}`;
+    }
+    
+    // List files in the folder
+    const files = await listFilesInFolder(configFolder);
+    console.log(`Looking for employee data in: ${configFolder}`);
+    console.log(`Files found:`, files.map(f => f.name));
+    
+    // Look for site_employees JSON file first
+    const jsonFile = files.find(f => f.name.toLowerCase().includes('site_employees') && f.name.endsWith('.json'));
+    
+    if (jsonFile) {
+      // Read and return the JSON content
+      const employees = await readJsonFileByPath(`${configFolder}/${jsonFile.name}`);
+      res.json(employees);
+      return;
+    }
+    
+    // Look for site_employees Excel file (.xlsx or .xls)
+    const excelFile = files.find(f => f.name.toLowerCase().includes('site_employees') && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls')));
+    if (excelFile) {
+      console.log(`Reading Excel file: ${excelFile.name}`);
+      const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Read column A starting from row 2
+      const employees: { name: string; id: string }[] = [];
+      let rowIndex = 2; // Start from row 2 (A2)
+      
+      while (true) {
+        const cellAddress = `A${rowIndex}`;
+        const cell = worksheet[cellAddress];
+        
+        if (!cell || !cell.v) {
+          break; // Stop when we hit an empty cell
+        }
+        
+        const name = String(cell.v).trim();
+        if (name) {
+          employees.push({
+            name,
+            id: String(rowIndex - 1), // ID based on row number
+          });
+        }
+        rowIndex++;
+      }
+      
+      console.log(`Loaded ${employees.length} employees from Excel file: ${excelFile.name}`);
+      res.json(employees);
+      return;
+    }
+    
+    // If no Excel or JSON file, look for site_employees CSV
+    const csvFile = files.find(f => f.name.toLowerCase().includes('site_employees') && f.name.endsWith('.csv'));
+    if (csvFile) {
+      const buffer = await readFileByPath(`${configFolder}/${csvFile.name}`);
+      const content = buffer.toString('utf-8');
+      
+      // Parse CSV - simple parsing (name per line or comma-separated)
+      const lines = content.split('\n').filter(line => line.trim());
+      
+      // Check if it's a simple list or has headers
+      const firstLine = lines[0];
+      let employees: { name: string; id?: string }[] = [];
+      
+      if (firstLine.includes(',')) {
+        // Has columns - assume first row is headers
+        const headers = firstLine.split(',').map(h => h.trim().toLowerCase());
+        const nameIndex = headers.findIndex(h => h === 'name' || h === 'employee');
+        const idIndex = headers.findIndex(h => h === 'id' || h === 'employee_id');
+        
+        for (let i = 1; i < lines.length; i++) {
+          const values = lines[i].split(',').map(v => v.trim());
+          if (values[nameIndex !== -1 ? nameIndex : 0]) {
+            employees.push({
+              name: values[nameIndex !== -1 ? nameIndex : 0],
+              id: idIndex !== -1 ? values[idIndex] : undefined,
+            });
+          }
+        }
+      } else {
+        // Simple list - one name per line
+        employees = lines.map((name, index) => ({ 
+          name: name.trim(),
+          id: String(index + 1),
+        }));
+      }
+      
+      res.json(employees);
+      return;
+    }
+    
+    // No data file found
+    console.log(`No site_employees file found in: ${configFolder}`);
+    res.json([]);
+  } catch (error) {
+    console.error('Error fetching site employees:', error);
+    res.status(500).json({ error: 'Failed to fetch site employees from SharePoint' });
+  }
+});
+
+/**
+ * GET /api/config/equipment
+ * Get list of equipment from SharePoint config folder
+ * Query params: ?client=RTA (optional, for client-specific config)
+ * Reads from configurable path (default: Umbrella Report Config/equipment/)
+ * If client is specified, looks in Umbrella Report Config/{client}/equipment
+ */
+router.get('/equipment', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { client } = req.query;
+    
+    // Get config folder path (all config files are in same folder)
+    let configFolder = await getSetting('equipmentPath') || DEFAULT_CONFIG_BASE_PATH;
+    
+    // If client is specified, use client-specific subfolder
+    if (client) {
+      configFolder = `${DEFAULT_CONFIG_BASE_PATH}/${client}`;
+    }
+    
+    const files = await listFilesInFolder(configFolder);
+    console.log(`Looking for equipment data in: ${configFolder}`);
+    
+    // Look for equipment JSON file
+    const jsonFile = files.find(f => f.name.toLowerCase().includes('equipment') && f.name.endsWith('.json'));
+    if (jsonFile) {
+      const equipment = await readJsonFileByPath(`${configFolder}/${jsonFile.name}`);
+      res.json(equipment);
+      return;
+    }
+    
+    // Look for equipment Excel file
+    const excelFile = files.find(f => f.name.toLowerCase().includes('equipment') && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls')));
+    if (excelFile) {
+      console.log(`Reading equipment Excel file: ${excelFile.name}`);
+      const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Read column A starting from row 2
+      const equipment: { name: string; id: string }[] = [];
+      let rowIndex = 2;
+      
+      while (true) {
+        const cellAddress = `A${rowIndex}`;
+        const cell = worksheet[cellAddress];
+        
+        if (!cell || !cell.v) {
+          break;
+        }
+        
+        const name = String(cell.v).trim();
+        if (name) {
+          equipment.push({
+            name,
+            id: String(rowIndex - 1),
+          });
+        }
+        rowIndex++;
+      }
+      
+      console.log(`Loaded ${equipment.length} equipment items from Excel file: ${excelFile.name}`);
+      res.json(equipment);
+      return;
+    }
+    
+    // Look for equipment CSV file
+    const csvFile = files.find(f => f.name.toLowerCase().includes('equipment') && f.name.endsWith('.csv'));
+    if (csvFile) {
+      const buffer = await readFileByPath(`${configFolder}/${csvFile.name}`);
+      const content = buffer.toString('utf-8');
+      const lines = content.split('\n').filter(line => line.trim());
+      
+      const equipment = lines.map((name, index) => ({
+        name: name.trim(),
+        id: String(index + 1),
+      }));
+      
+      res.json(equipment);
+      return;
+    }
+    
+    console.log(`No equipment file found in: ${configFolder}`);
+    res.json([]);
+  } catch (error) {
+    console.error('Error fetching equipment:', error);
+    res.status(500).json({ error: 'Failed to fetch equipment from SharePoint' });
+  }
+});
+
+/**
+ * GET /api/config/list/:folderName
+ * Generic endpoint to list config data from any config subfolder
+ */
+router.get('/list/:folderName', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { folderName } = req.params;
+    const folderPath = `${DEFAULT_CONFIG_BASE_PATH}/${folderName}`;
+    
+    const files = await listFilesInFolder(folderPath);
+    
+    // Try JSON first
+    const jsonFile = files.find(f => f.name.endsWith('.json'));
+    if (jsonFile) {
+      const data = await readJsonFileByPath(`${folderPath}/${jsonFile.name}`);
+      res.json(data);
+      return;
+    }
+    
+    // Try CSV
+    const csvFile = files.find(f => f.name.endsWith('.csv'));
+    if (csvFile) {
+      const buffer = await readFileByPath(`${folderPath}/${csvFile.name}`);
+      const content = buffer.toString('utf-8');
+      const lines = content.split('\n').filter(line => line.trim());
+      
+      // Simple list parsing
+      const items = lines.map((line, index) => {
+        if (line.includes(',')) {
+          const parts = line.split(',').map(p => p.trim());
+          return { name: parts[0], id: parts[1] || String(index + 1) };
+        }
+        return { name: line.trim(), id: String(index + 1) };
+      });
+      
+      res.json(items);
+      return;
+    }
+    
+    // Return list of files in folder (as fallback)
+    res.json(files.map(f => ({ name: f.name, id: f.id })));
+  } catch (error) {
+    console.error(`Error fetching config from ${req.params.folderName}:`, error);
+    res.status(500).json({ error: 'Failed to fetch config data from SharePoint' });
+  }
+});
+
+export default router;

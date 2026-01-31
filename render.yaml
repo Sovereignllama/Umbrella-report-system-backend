@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: umbrella-reports-api
+    runtime: node
+    region: oregon  # or ohio, frankfurt, singapore
+    plan: free  # free, starter, standard, pro
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Database - set these in Render Dashboard
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      # Azure AD / MSAL - set these in Render Dashboard
+      - key: AZURE_TENANT_ID
+        sync: false
+      - key: AZURE_CLIENT_ID
+        sync: false
+      - key: AZURE_CLIENT_SECRET
+        sync: false
+      # SharePoint - set these in Render Dashboard
+      - key: SHAREPOINT_SITE_URL
+        sync: false
+      - key: SHAREPOINT_DRIVE_ID
+        sync: false
+      # Secrets - set these in Render Dashboard
+      - key: JWT_SECRET
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
