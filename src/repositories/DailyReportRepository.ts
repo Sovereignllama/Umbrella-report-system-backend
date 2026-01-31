@@ -211,6 +211,24 @@ export class DailyReportRepository {
     );
     return result.rowCount > 0;
   }
+
+  /**
+   * Delete a report and all related data (labor lines, equipment lines, etc.)
+   * Uses CASCADE delete if foreign keys are set up, otherwise deletes manually
+   */
+  static async deleteById(id: string): Promise<boolean> {
+    return withTransaction(async (client) => {
+      // Delete related records first (in case CASCADE isn't set up)
+      await client.query('DELETE FROM report_labor_lines WHERE report_id = $1', [id]);
+      await client.query('DELETE FROM report_equipment_lines WHERE report_id = $1', [id]);
+      await client.query('DELETE FROM report_materials WHERE report_id = $1', [id]);
+      await client.query('DELETE FROM report_attachments WHERE report_id = $1', [id]);
+      
+      // Delete the report itself
+      const result = await client.query('DELETE FROM daily_reports WHERE id = $1', [id]);
+      return (result.rowCount || 0) > 0;
+    });
+  }
 }
 
 export class ReportLaborLineRepository {

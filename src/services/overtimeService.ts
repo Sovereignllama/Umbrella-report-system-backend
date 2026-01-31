@@ -254,45 +254,50 @@ function calculateStatHolidayHours(totalHours: number, rules: OvertimeRules): Ho
 
 /**
  * Calculate hours breakdown for a weekend
- * If employee has < 40 RG hours this week: weekend hours are RG until 40, then OT
- * If employee has >= 40 RG hours this week: all weekend hours are OT
- * DT still applies after 12 hours in a day
+ * Daily rules ALWAYS apply: 0-8 = RG (or OT if 40+ weekly), 8-12 = OT, 12+ = DT
+ * The 40-hour rule only affects whether the FIRST 8 hours are RG or OT
  */
 function calculateWeekendHours(
   totalHours: number, 
   weeklyRegularHours: number,
   rules: OvertimeRules
 ): HoursBreakdown {
-  const { weekendOvertimeAfterWeeklyHours, overtimeHoursMax } = rules;
+  const { regularHoursMax, weekendOvertimeAfterWeeklyHours, overtimeHoursMax } = rules;
   
   let regularHours = 0;
   let overtimeHours = 0;
   let doubleTimeHours = 0;
   
-  // How many RG hours can this employee still earn before hitting weekly threshold?
-  const remainingRegularAllowance = Math.max(0, weekendOvertimeAfterWeeklyHours - weeklyRegularHours);
-  
-  // First, calculate DT (anything over 12 hours in a day is always DT)
+  // DT always applies after 12 hours in a day
   if (totalHours > overtimeHoursMax) {
     doubleTimeHours = totalHours - overtimeHoursMax;
   }
   
-  // Hours before DT threshold
+  // OT always applies for hours 8-12 (daily threshold)
   const hoursBeforeDT = Math.min(totalHours, overtimeHoursMax);
+  if (hoursBeforeDT > regularHoursMax) {
+    // Hours between 8 and 12 are always OT
+    overtimeHours = hoursBeforeDT - regularHoursMax;
+  }
   
-  if (remainingRegularAllowance > 0) {
-    // Employee hasn't hit 40 weekly RG yet
-    if (hoursBeforeDT <= remainingRegularAllowance) {
-      // All non-DT hours are regular
-      regularHours = hoursBeforeDT;
+  // First 8 hours: depends on weekly regular hours
+  const firstEightHours = Math.min(totalHours, regularHoursMax);
+  
+  if (weeklyRegularHours >= weekendOvertimeAfterWeeklyHours) {
+    // Employee has 40+ RG this week - first 8 hours on weekend are OT
+    overtimeHours += firstEightHours;
+  } else {
+    // Employee hasn't hit 40 yet - first 8 can be regular (up to remaining allowance)
+    const remainingRegularAllowance = weekendOvertimeAfterWeeklyHours - weeklyRegularHours;
+    
+    if (firstEightHours <= remainingRegularAllowance) {
+      // All first 8 hours are regular
+      regularHours = firstEightHours;
     } else {
       // Some regular, rest is OT
       regularHours = remainingRegularAllowance;
-      overtimeHours = hoursBeforeDT - remainingRegularAllowance;
+      overtimeHours += firstEightHours - remainingRegularAllowance;
     }
-  } else {
-    // Employee already has 40+ RG this week - all non-DT hours are OT
-    overtimeHours = hoursBeforeDT;
   }
   
   return { regularHours, overtimeHours, doubleTimeHours, totalHours };

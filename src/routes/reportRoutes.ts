@@ -4,6 +4,7 @@ import {
   authMiddleware,
   requireSupervisor,
   requireSupervisorOrBoss,
+  requireAdmin,
 } from '../middleware';
 import {
   DailyReportRepository,
@@ -319,6 +320,45 @@ router.get(
     } catch (error) {
       console.error('Error fetching reports:', error);
       res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+  }
+);
+
+// ============================================
+// DELETE REPORT (Admin only)
+// ============================================
+
+/**
+ * DELETE /api/reports/:id
+ * Delete a report - Admin only
+ */
+router.delete(
+  '/:id',
+  authMiddleware,
+  requireAdmin,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      // Check if report exists
+      const report = await DailyReportRepository.findById(id);
+      if (!report) {
+        res.status(404).json({ error: 'Report not found' });
+        return;
+      }
+
+      // Delete the report
+      const deleted = await DailyReportRepository.deleteById(id);
+      
+      if (deleted) {
+        console.log(`Report ${id} deleted by admin ${req.user?.email}`);
+        res.json({ success: true, message: 'Report deleted successfully' });
+      } else {
+        res.status(500).json({ error: 'Failed to delete report' });
+      }
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      res.status(500).json({ error: 'Failed to delete report' });
     }
   }
 );
