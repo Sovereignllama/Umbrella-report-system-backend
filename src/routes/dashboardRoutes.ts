@@ -86,9 +86,9 @@ router.get(
         // Calculate labor costs
         for (const line of laborLines) {
           const emp = line.employeeId ? await EmployeeRepository.findById(line.employeeId) : null;
-          const rates = await ChargeOutRateRepository.findBySkillLevel(
-            emp?.skillLevel || 'Regular'
-          );
+          // Use skillName from timesheet if available, fall back to employee's skillLevel
+          const skillForRates = line.skillName || emp?.skillLevel || 'Regular';
+          const rates = await ChargeOutRateRepository.findBySkillLevel(skillForRates);
 
           totalRegularHours += line.regularHours;
           totalOTHours += line.otHours;
@@ -190,9 +190,9 @@ router.get(
 
         for (const line of laborLines) {
           const emp = line.employeeId ? await EmployeeRepository.findById(line.employeeId) : null;
-          const rates = await ChargeOutRateRepository.findBySkillLevel(
-            emp?.skillLevel || 'Regular'
-          );
+          // Use skillName from timesheet if available, fall back to employee's skillLevel
+          const skillForRates = line.skillName || emp?.skillLevel || 'Regular';
+          const rates = await ChargeOutRateRepository.findBySkillLevel(skillForRates);
 
           regularHours += line.regularHours;
           otHours += line.otHours;

@@ -161,6 +161,7 @@ router.post(
       const mappedLaborLines = (laborLines || []).map((line: any) => ({
         employeeId: line.employee_id || line.employeeId,
         employeeName: line.employee_name || line.employeeName,
+        skillName: line.skill_name || line.skillName,
         regularHours: line.regular_hours || line.regularHours || 0,
         otHours: line.ot_hours || line.otHours || 0,
         dtHours: line.dt_hours || line.dtHours || 0,

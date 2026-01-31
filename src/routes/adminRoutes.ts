@@ -10,6 +10,8 @@ import {
   ClientRepository,
   PayPeriodRepository,
 } from '../repositories';
+import { EmployeeSkillsRepository } from '../repositories/EmployeeSkillsRepository';
+import { InactiveEmployeesRepository } from '../repositories/InactiveEmployeesRepository';
 import { createProjectFolderStructure, getOrCreateFolder } from '../services/sharepointService';
 import { generateAndUploadPayrollReport } from '../services/payrollSharePointService';
 import ExcelJS from 'exceljs';
@@ -587,6 +589,229 @@ router.delete('/pay-periods/:year', authMiddleware, requireAdmin, async (req: Au
   } catch (error) {
     console.error('Error deleting pay periods:', error);
     res.status(500).json({ error: 'Failed to delete pay periods' });
+  }
+});
+
+// ============================================
+// EMPLOYEE SKILLS MANAGEMENT
+// ============================================
+
+/**
+ * GET /api/admin/employee-skills
+ * Get all employee skill assignments grouped by employee
+ * Query params: ?client=RTA (optional, filter by client)
+ */
+router.get('/employee-skills', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { client } = req.query;
+    
+    let skills;
+    if (client) {
+      skills = await EmployeeSkillsRepository.getAllForClient(client as string);
+    } else {
+      skills = await EmployeeSkillsRepository.getAll();
+    }
+    
+    // Group by employee for easier frontend consumption
+    const grouped: { employeeName: string; clientName: string; skills: string[] }[] = [];
+    const employeeMap = new Map<string, { employeeName: string; clientName: string; skills: string[] }>();
+    
+    for (const skill of skills) {
+      const key = `${skill.employeeName}|${skill.clientName}`;
+      if (!employeeMap.has(key)) {
+        employeeMap.set(key, {
+          employeeName: skill.employeeName,
+          clientName: skill.clientName,
+          skills: []
+        });
+      }
+      employeeMap.get(key)!.skills.push(skill.skillName);
+    }
+    
+    res.json({ data: Array.from(employeeMap.values()) });
+  } catch (error) {
+    console.error('Error fetching employee skills:', error);
+    res.status(500).json({ error: 'Failed to fetch employee skills' });
+  }
+});
+
+/**
+ * GET /api/admin/employee-skills/:employeeName
+ * Get skills for a specific employee
+ * Query params: ?client=RTA (required)
+ */
+router.get('/employee-skills/:employeeName', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { employeeName } = req.params;
+    const { client } = req.query;
+    
+    if (!client) {
+      res.status(400).json({ error: 'client parameter is required' });
+      return;
+    }
+    
+    const skills = await EmployeeSkillsRepository.getSkillsForEmployee(
+      employeeName,
+      client as string
+    );
+    
+    res.json(skills);
+  } catch (error) {
+    console.error('Error fetching employee skills:', error);
+    res.status(500).json({ error: 'Failed to fetch employee skills' });
+  }
+});
+
+/**
+ * PUT /api/admin/employee-skills/:employeeName
+ * Set all skills for an employee (replaces existing)
+ * Body: { client: string, skills: string[] }
+ */
+router.put('/employee-skills/:employeeName', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { employeeName } = req.params;
+    const { client, skills } = req.body;
+    
+    if (!client) {
+      res.status(400).json({ error: 'client is required' });
+      return;
+    }
+    
+    if (!Array.isArray(skills)) {
+      res.status(400).json({ error: 'skills must be an array' });
+      return;
+    }
+    
+    await EmployeeSkillsRepository.setSkillsForEmployee(
+      employeeName,
+      client,
+      skills,
+      req.user?.email || 'admin'
+    );
+    
+    res.json({ success: true, message: `Skills updated for ${employeeName}` });
+  } catch (error) {
+    console.error('Error updating employee skills:', error);
+    res.status(500).json({ error: 'Failed to update employee skills' });
+  }
+});
+
+/**
+ * POST /api/admin/employee-skills
+ * Add a single skill to an employee
+ * Body: { employeeName: string, skillName: string, client: string }
+ */
+router.post('/employee-skills', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { employeeName, skillName, client } = req.body;
+    
+    if (!employeeName || !skillName || !client) {
+      res.status(400).json({ error: 'employeeName, skillName, and client are required' });
+      return;
+    }
+    
+    const skill = await EmployeeSkillsRepository.addSkill(
+      employeeName,
+      skillName,
+      client,
+      req.user?.email || 'admin'
+    );
+    
+    res.status(201).json(skill);
+  } catch (error) {
+    console.error('Error adding employee skill:', error);
+    res.status(500).json({ error: 'Failed to add employee skill' });
+  }
+});
+
+/**
+ * DELETE /api/admin/employee-skills
+ * Remove a skill from an employee
+ * Query params: ?employeeName=John&skillName=Welder&client=RTA
+ */
+router.delete('/employee-skills', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { employeeName, skillName, client } = req.query;
+    
+    if (!employeeName || !skillName || !client) {
+      res.status(400).json({ error: 'employeeName, skillName, and client are required' });
+      return;
+    }
+    
+    const removed = await EmployeeSkillsRepository.removeSkill(
+      employeeName as string,
+      skillName as string,
+      client as string
+    );
+    
+    if (removed) {
+      res.json({ success: true, message: 'Skill removed' });
+    } else {
+      res.status(404).json({ error: 'Skill assignment not found' });
+    }
+  } catch (error) {
+    console.error('Error removing employee skill:', error);
+    res.status(500).json({ error: 'Failed to remove employee skill' });
+  }
+});
+
+// ============================================
+// INACTIVE EMPLOYEES MANAGEMENT
+// ============================================
+
+/**
+ * GET /api/admin/inactive-employees
+ * Get list of all inactive employees
+ */
+router.get('/inactive-employees', authMiddleware, requireAdmin, async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const inactive = await InactiveEmployeesRepository.getAll();
+    res.json({ data: inactive });
+  } catch (error) {
+    console.error('Error fetching inactive employees:', error);
+    res.status(500).json({ error: 'Failed to fetch inactive employees' });
+  }
+});
+
+/**
+ * POST /api/admin/inactive-employees
+ * Set an employee as inactive
+ */
+router.post('/inactive-employees', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { employeeName } = req.body;
+    
+    if (!employeeName) {
+      res.status(400).json({ error: 'employeeName is required' });
+      return;
+    }
+    
+    await InactiveEmployeesRepository.setInactive(employeeName, req.user.id);
+    res.json({ success: true, message: `${employeeName} marked as inactive` });
+  } catch (error) {
+    console.error('Error setting employee inactive:', error);
+    res.status(500).json({ error: 'Failed to set employee as inactive' });
+  }
+});
+
+/**
+ * DELETE /api/admin/inactive-employees/:employeeName
+ * Set an employee as active (remove from inactive list)
+ */
+router.delete('/inactive-employees/:employeeName', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { employeeName } = req.params;
+    
+    const removed = await InactiveEmployeesRepository.setActive(employeeName);
+    
+    if (removed) {
+      res.json({ success: true, message: `${employeeName} marked as active` });
+    } else {
+      res.status(404).json({ error: 'Employee not found in inactive list' });
+    }
+  } catch (error) {
+    console.error('Error setting employee active:', error);
+    res.status(500).json({ error: 'Failed to set employee as active' });
   }
 });
 

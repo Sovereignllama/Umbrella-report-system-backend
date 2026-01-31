@@ -116,7 +116,7 @@ export async function generateSupervisorReport(
   currentRow++;
 
   const laborHeaderRow = sheet.getRow(currentRow);
-  const laborHeaders = ['Employee', 'Regular Hours', 'OT Hours', 'DT Hours', 'Work Description'];
+  const laborHeaders = ['Employee', 'Skill/Position', 'Regular Hours', 'OT Hours', 'DT Hours', 'Work Description'];
   laborHeaders.forEach((header, idx) => {
     laborHeaderRow.getCell(idx + 1).value = header;
   });
@@ -129,16 +129,17 @@ export async function generateSupervisorReport(
     const employee = line.employeeId ? await EmployeeRepository.findById(line.employeeId) : null;
     const row = sheet.getRow(currentRow);
 
-    row.getCell(1).value = employee?.name || 'Unknown';
-    row.getCell(2).value = line.regularHours;
-    row.getCell(2).numFmt = STYLES.timeFormat;
-    row.getCell(3).value = line.otHours;
+    row.getCell(1).value = line.employeeName || employee?.name || 'Unknown';
+    row.getCell(2).value = line.skillName || '-';
+    row.getCell(3).value = line.regularHours;
     row.getCell(3).numFmt = STYLES.timeFormat;
-    row.getCell(4).value = line.dtHours;
+    row.getCell(4).value = line.otHours;
     row.getCell(4).numFmt = STYLES.timeFormat;
-    row.getCell(5).value = line.workDescription;
+    row.getCell(5).value = line.dtHours;
+    row.getCell(5).numFmt = STYLES.timeFormat;
+    row.getCell(6).value = line.workDescription;
 
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 1; i <= 6; i++) {
       styleCellBorders(row.getCell(i));
     }
 
@@ -271,14 +272,14 @@ export async function generateBossReport(
 
   for (const line of laborLines) {
     const employee = line.employeeId ? await EmployeeRepository.findById(line.employeeId) : null;
-    const rates = await ChargeOutRateRepository.findBySkillLevel(
-      employee?.skillLevel || 'Regular'
-    );
+    // Use skillName from the timesheet if available, fall back to employee's skillLevel
+    const skillForRates = line.skillName || employee?.skillLevel || 'Regular';
+    const rates = await ChargeOutRateRepository.findBySkillLevel(skillForRates);
 
     const row = sheet.getRow(currentRow);
 
-    row.getCell(1).value = employee?.name || 'Unknown';
-    row.getCell(2).value = employee?.skillLevel || 'Regular';
+    row.getCell(1).value = line.employeeName || employee?.name || 'Unknown';
+    row.getCell(2).value = line.skillName || employee?.skillLevel || 'Regular';
 
     // Regular hours
     row.getCell(3).value = line.regularHours;

@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS report_labor_lines (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   report_id UUID NOT NULL REFERENCES daily_reports(id) ON DELETE CASCADE,
   employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  employee_name VARCHAR(255),
+  skill_name VARCHAR(255),
   regular_hours DECIMAL(5, 2) DEFAULT 0,
   ot_hours DECIMAL(5, 2) DEFAULT 0,
   dt_hours DECIMAL(5, 2) DEFAULT 0,
@@ -282,6 +284,20 @@ FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 CREATE TRIGGER trigger_employee_pay_summary_updated_at BEFORE UPDATE ON employee_pay_summary
 FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+-- ============================================
+-- INACTIVE EMPLOYEES TABLE
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS inactive_employees (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_name VARCHAR(255) NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_by UUID REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inactive_employees_name 
+ON inactive_employees(LOWER(employee_name));
 
 -- ============================================
 -- DONE

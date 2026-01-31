@@ -5,6 +5,8 @@ import { listFilesInFolder, readJsonFileByPath, readFileByPath, getOrCreateFolde
 import { getSetting } from './settingsRoutes';
 import { calculateHoursBreakdown, isStatHoliday, getWeekStart, getWeekEnd, getClientRules } from '../services/overtimeService';
 import { DailyReportRepository, ReportLaborLineRepository } from '../repositories';
+import { EmployeeSkillsRepository } from '../repositories/EmployeeSkillsRepository';
+import { InactiveEmployeesRepository } from '../repositories/InactiveEmployeesRepository';
 import * as XLSX from 'xlsx';
 
 const router = Router();
@@ -178,6 +180,7 @@ router.get('/current-week', authMiddleware, async (_req: AuthRequest, res: Respo
 /**
  * GET /api/config/site-employees
  * Get list of employees from SharePoint config folder (GLOBAL - same for all clients)
+ * Filters out inactive employees from the list
  * Reads from configurable path (default: Umbrella Report Config/site_employees.xlsx)
  */
 router.get('/site-employees', authMiddleware, async (_req: AuthRequest, res: Response): Promise<void> => {
@@ -190,13 +193,21 @@ router.get('/site-employees', authMiddleware, async (_req: AuthRequest, res: Res
     console.log(`Looking for employee data in: ${configFolder}`);
     console.log(`Files found:`, files.map(f => f.name));
     
+    // Get inactive employee names for filtering
+    const inactiveNames = await InactiveEmployeesRepository.getInactiveNames();
+    
+    // Helper function to filter active employees
+    const filterActive = (employees: { name: string; id?: string }[]) => {
+      return employees.filter(emp => !inactiveNames.includes(emp.name.toLowerCase()));
+    };
+    
     // Look for site_employees JSON file first
     const jsonFile = files.find(f => f.name.toLowerCase().includes('site_employees') && f.name.endsWith('.json'));
     
     if (jsonFile) {
       // Read and return the JSON content
       const employees = await readJsonFileByPath(`${configFolder}/${jsonFile.name}`);
-      res.json(employees);
+      res.json(filterActive(employees));
       return;
     }
     
@@ -232,7 +243,7 @@ router.get('/site-employees', authMiddleware, async (_req: AuthRequest, res: Res
       }
       
       console.log(`Loaded ${employees.length} employees from Excel file: ${excelFile.name}`);
-      res.json(employees);
+      res.json(filterActive(employees));
       return;
     }
     
@@ -272,7 +283,7 @@ router.get('/site-employees', authMiddleware, async (_req: AuthRequest, res: Res
         }));
       }
       
-      res.json(employees);
+      res.json(filterActive(employees));
       return;
     }
     
@@ -282,6 +293,48 @@ router.get('/site-employees', authMiddleware, async (_req: AuthRequest, res: Res
   } catch (error) {
     console.error('Error fetching site employees:', error);
     res.status(500).json({ error: 'Failed to fetch site employees from SharePoint' });
+  }
+});
+
+/**
+ * GET /api/config/site-employees-all
+ * Get ALL employees including inactive (for admin management page)
+ */
+router.get('/site-employees-all', authMiddleware, async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const configFolder = await getSetting('employeesPath') || DEFAULT_CONFIG_BASE_PATH;
+    const files = await listFilesInFolder(configFolder);
+    
+    // Look for site_employees Excel file
+    const excelFile = files.find(f => f.name.toLowerCase().includes('site_employees') && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls')));
+    if (excelFile) {
+      const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      const employees: { name: string; id: string }[] = [];
+      let rowIndex = 2;
+      
+      while (true) {
+        const cell = worksheet[`A${rowIndex}`];
+        if (!cell || !cell.v) break;
+        
+        const name = String(cell.v).trim();
+        if (name) {
+          employees.push({ name, id: String(rowIndex - 1) });
+        }
+        rowIndex++;
+      }
+      
+      res.json(employees);
+      return;
+    }
+    
+    res.json([]);
+  } catch (error) {
+    console.error('Error fetching all site employees:', error);
+    res.status(500).json({ error: 'Failed to fetch site employees' });
   }
 });
 
@@ -419,6 +472,118 @@ router.get('/list/:folderName', authMiddleware, async (req: AuthRequest, res: Re
   } catch (error) {
     console.error(`Error fetching config from ${req.params.folderName}:`, error);
     res.status(500).json({ error: 'Failed to fetch config data from SharePoint' });
+  }
+});
+
+/**
+ * GET /api/config/skills
+ * Get list of skills/positions from client's skills_rates.xlsx
+ * Query params: ?client=RTA (required for client-specific skills)
+ */
+router.get('/skills', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { client } = req.query;
+    
+    if (!client) {
+      res.status(400).json({ error: 'client parameter is required' });
+      return;
+    }
+    
+    const configFolder = `${DEFAULT_CONFIG_BASE_PATH}/${client}`;
+    const files = await listFilesInFolder(configFolder);
+    console.log(`Looking for skills_rates in: ${configFolder}`);
+    
+    // Look for skills_rates Excel file
+    const excelFile = files.find(f => 
+      f.name.toLowerCase().includes('skills') && 
+      (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))
+    );
+    
+    if (!excelFile) {
+      console.log(`No skills_rates file found in: ${configFolder}`);
+      res.json({ data: [] });
+      return;
+    }
+    
+    console.log(`Reading skills file: ${excelFile.name}`);
+    const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    
+    // Read skills from column A starting from row 2 (row 1 is header)
+    const skills: { id: string; name: string; regularRate: number; otRate: number; dtRate: number; nightDiff: number }[] = [];
+    let rowIndex = 2;
+    
+    while (true) {
+      const nameCell = worksheet[`A${rowIndex}`];
+      
+      if (!nameCell || !nameCell.v) {
+        break; // Stop when we hit an empty cell
+      }
+      
+      const name = String(nameCell.v).trim();
+      if (name) {
+        // Parse rates from columns B, C, D, E
+        const regularCell = worksheet[`B${rowIndex}`];
+        const otCell = worksheet[`C${rowIndex}`];
+        const dtCell = worksheet[`D${rowIndex}`];
+        const nightCell = worksheet[`E${rowIndex}`];
+        
+        // Parse currency values (remove $ and convert to number)
+        const parseRate = (cell: any): number => {
+          if (!cell || !cell.v) return 0;
+          const value = String(cell.v).replace(/[$,]/g, '');
+          return parseFloat(value) || 0;
+        };
+        
+        skills.push({
+          id: String(rowIndex - 1),
+          name,
+          regularRate: parseRate(regularCell),
+          otRate: parseRate(otCell),
+          dtRate: parseRate(dtCell),
+          nightDiff: parseRate(nightCell),
+        });
+      }
+      rowIndex++;
+    }
+    
+    console.log(`Loaded ${skills.length} skills from: ${excelFile.name}`);
+    res.json({ data: skills });
+  } catch (error) {
+    console.error('Error fetching skills:', error);
+    res.status(500).json({ error: 'Failed to fetch skills from SharePoint' });
+  }
+});
+
+/**
+ * GET /api/config/employee-skills/:employeeName
+ * Get allowed skills for an employee (for supervisors filling out forms)
+ * Query params: ?client=RTA (required)
+ * Returns: all skills if no skills configured, or just the allowed skills
+ */
+router.get('/employee-skills/:employeeName', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { employeeName } = req.params;
+    const { client } = req.query;
+    
+    if (!client) {
+      res.status(400).json({ error: 'client parameter is required' });
+      return;
+    }
+    
+    const allowedSkills = await EmployeeSkillsRepository.getSkillsForEmployee(
+      employeeName,
+      client as string
+    );
+    
+    // If no skills configured, return empty (frontend will show all skills)
+    // If skills configured, return only those
+    res.json({ data: allowedSkills });
+  } catch (error) {
+    console.error('Error fetching employee allowed skills:', error);
+    res.status(500).json({ error: 'Failed to fetch employee skills' });
   }
 });
 

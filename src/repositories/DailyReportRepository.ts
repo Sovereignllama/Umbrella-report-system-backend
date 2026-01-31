@@ -13,6 +13,7 @@ export interface CreateDailyReportData {
   laborLines: Array<{
     employeeId: string;
     employeeName?: string;
+    skillName?: string;
     regularHours: number;
     otHours: number;
     dtHours: number;
@@ -82,18 +83,20 @@ export class DailyReportRepository {
     startDate: Date,
     endDate: Date,
     projectId?: string
-  ): Promise<DailyReport[]> {
-    let sql = `SELECT * FROM daily_reports 
-               WHERE report_date >= $1 AND report_date <= $2 AND status = 'submitted'`;
+  ): Promise<(DailyReport & { supervisorName?: string })[]> {
+    let sql = `SELECT dr.*, u.name as supervisor_name 
+               FROM daily_reports dr
+               LEFT JOIN users u ON dr.supervisor_id = u.id
+               WHERE dr.report_date >= $1 AND dr.report_date <= $2 AND dr.status = 'submitted'`;
     const params: any[] = [startDate, endDate];
 
     if (projectId) {
-      sql += ` AND project_id = $3`;
+      sql += ` AND dr.project_id = $3`;
       params.push(projectId);
     }
 
-    sql += ` ORDER BY report_date DESC`;
-    const result = await query<DailyReport>(sql, params);
+    sql += ` ORDER BY dr.report_date DESC`;
+    const result = await query<DailyReport & { supervisorName?: string }>(sql, params);
     return result.rows;
   }
 
@@ -112,8 +115,8 @@ export class DailyReportRepository {
       if (data.laborLines.length > 0) {
         const laborValues = data.laborLines
           .map((_line, idx) => {
-            const paramOffset = idx * 6;
-            return `($1, $${paramOffset + 2}, $${paramOffset + 3}, $${paramOffset + 4}, $${paramOffset + 5}, $${paramOffset + 6}, $${paramOffset + 7})`;
+            const paramOffset = idx * 7;
+            return `($1, $${paramOffset + 2}, $${paramOffset + 3}, $${paramOffset + 4}, $${paramOffset + 5}, $${paramOffset + 6}, $${paramOffset + 7}, $${paramOffset + 8})`;
           })
           .join(',');
 
@@ -124,6 +127,7 @@ export class DailyReportRepository {
           laborParams.push(
             isValidUuid ? line.employeeId : null,
             line.employeeName || null,
+            line.skillName || null,
             line.regularHours,
             line.otHours,
             line.dtHours,
@@ -132,7 +136,7 @@ export class DailyReportRepository {
         });
 
         await client.query(
-          `INSERT INTO report_labor_lines (report_id, employee_id, employee_name, regular_hours, ot_hours, dt_hours, work_description)
+          `INSERT INTO report_labor_lines (report_id, employee_id, employee_name, skill_name, regular_hours, ot_hours, dt_hours, work_description)
            VALUES ${laborValues}`,
           laborParams
         );
