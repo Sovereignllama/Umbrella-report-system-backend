@@ -192,6 +192,19 @@ export async function generateDfaExcel(
   const sheet = workbook.worksheets[0];
   const dfaNumber = generateDfaNumber(report.clientName, new Date(report.reportDate), report.id);
   
+  // Clear all formulas to avoid ExcelJS shared formula issues
+  sheet.eachRow((row) => {
+    row.eachCell((cell) => {
+      if (cell.formula || (cell as any).sharedFormula) {
+        // Convert formula cells to their current value (or 0 if no value)
+        const currentValue = cell.value;
+        if (typeof currentValue === 'object' && currentValue !== null) {
+          cell.value = (currentValue as any).result || 0;
+        }
+      }
+    });
+  });
+  
   // Format date
   const reportDate = new Date(report.reportDate);
   const formattedDate = `${reportDate.getMonth() + 1}/${reportDate.getDate()}/${reportDate.getFullYear()}`;
