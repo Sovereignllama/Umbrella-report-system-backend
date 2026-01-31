@@ -21,6 +21,7 @@ import {
   uploadDfaToSharePoint,
   generateAggregateReport,
   uploadAggregateToSharePoint,
+  archiveDfaToSharePoint,
 } from '../services/dfaService';
 
 const router = Router();
@@ -402,6 +403,9 @@ router.delete(
         res.status(404).json({ error: 'Report not found' });
         return;
       }
+
+      // Archive the DFA to SharePoint before deleting
+      await archiveDfaToSharePoint(report);
 
       // Delete the report
       const deleted = await DailyReportRepository.deleteById(id);

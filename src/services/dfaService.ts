@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import { DailyReport } from '../types/database';
 import { ReportLaborLineRepository, ReportEquipmentLineRepository } from '../repositories';
-import { readFileByPath, listFilesInFolder, uploadFile, getOrCreateFolder } from './sharepointService';
+import { readFileByPath, listFilesInFolder, uploadFile, getOrCreateFolder, archiveFile } from './sharepointService';
 import * as XLSX from 'xlsx';
 
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
@@ -429,4 +429,48 @@ export async function uploadAggregateToSharePoint(
   console.log(`Uploaded aggregate report to: ${result.webUrl}`);
   
   return result;
+}
+
+/**
+ * Archive a DFA when report is deleted
+ * Moves the DFA from the week folder to Archive folder under the project
+ */
+export async function archiveDfaToSharePoint(
+  report: DailyReport
+): Promise<void> {
+  try {
+    if (!report.clientName || !report.projectName || !report.weekFolder) {
+      console.log('Report missing client/project/week info, skipping DFA archive');
+      return;
+    }
+    
+    // Generate the DFA filename to find it
+    const dfaNumber = generateDfaNumber(report.clientName, new Date(report.reportDate), report.id);
+    const dfaFileName = `DFA_${dfaNumber}.xlsx`;
+    
+    // Get the week folder and find the DFA file
+    const weekFolderPath = `projects/${report.clientName}/${report.projectName}/${report.weekFolder}`;
+    const files = await listFilesInFolder(weekFolderPath);
+    
+    const dfaFile = files.find(f => f.name === dfaFileName);
+    
+    if (!dfaFile) {
+      console.log(`DFA file not found in SharePoint: ${dfaFileName}`);
+      return;
+    }
+    
+    // Get or create Archive folder under the project
+    const projectsRoot = await getOrCreateFolder('root', 'projects');
+    const clientFolder = await getOrCreateFolder(projectsRoot.folderId, report.clientName);
+    const projectFolder = await getOrCreateFolder(clientFolder.folderId, report.projectName);
+    const archiveFolder = await getOrCreateFolder(projectFolder.folderId, 'Archive');
+    
+    // Move the DFA to Archive folder
+    await archiveFile(dfaFile.id, archiveFolder.folderId);
+    
+    console.log(`Archived DFA ${dfaFileName} to Archive folder`);
+  } catch (error) {
+    console.error('Error archiving DFA:', error);
+    // Don't throw - we still want the report delete to succeed even if archive fails
+  }
 }
