@@ -279,8 +279,14 @@ export async function generateDfaExcel(
   // Tomorrows Planned Activities (Row 52-56 area)
   sheet.getCell('A52').value = report.tomorrowsActivities || '';
   
-  // Generate buffer
-  const buffer = await workbook.xlsx.writeBuffer();
+  // Generate buffer - use stream to avoid corruption issues
+  const buffer = await workbook.xlsx.writeBuffer({
+    useStyles: true,
+    useSharedStrings: true,
+  }) as Buffer;
+  
+  console.log(`DFA buffer generated, size: ${buffer.length} bytes`);
+  
   // Filename format: "Jan 31, 2026 - Anode Hauling - DFA-1.xlsx"
   const fileName = `${formattedDateForFilename} - ${report.projectName} - ${dfaNumber}.xlsx`;
   
