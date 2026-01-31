@@ -192,26 +192,6 @@ export async function generateDfaExcel(
   const sheet = workbook.worksheets[0];
   const dfaNumber = generateDfaNumber(report.clientName, new Date(report.reportDate), report.id);
   
-  // Clear all formulas to avoid ExcelJS shared formula issues
-  // We need to be careful because accessing .formula on some cells can throw
-  for (let rowNum = 1; rowNum <= sheet.rowCount; rowNum++) {
-    const row = sheet.getRow(rowNum);
-    for (let colNum = 1; colNum <= row.cellCount; colNum++) {
-      try {
-        const cell = row.getCell(colNum);
-        // Check if cell has a formula by looking at the internal model
-        const cellModel = (cell as any)._value;
-        if (cellModel && (cellModel.formula || cellModel.sharedFormula || cellModel._type === 6)) {
-          // It's a formula cell - replace with result value or 0
-          const result = cellModel.result;
-          cell.value = result !== undefined ? result : 0;
-        }
-      } catch (e) {
-        // Skip cells that throw errors
-      }
-    }
-  }
-  
   // Format date
   const reportDate = new Date(report.reportDate);
   const formattedDate = `${reportDate.getMonth() + 1}/${reportDate.getDate()}/${reportDate.getFullYear()}`;
