@@ -57,6 +57,22 @@ export async function runMigrations(): Promise<void> {
     // Define migrations in order
     const migrations = [
       {
+        name: '005_add_employee_skills',
+        sql: `
+          CREATE TABLE IF NOT EXISTS employee_allowed_skills (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            employee_name VARCHAR(255) NOT NULL,
+            skill_name VARCHAR(255) NOT NULL,
+            client_name VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_by VARCHAR(255),
+            UNIQUE(employee_name, skill_name, client_name)
+          );
+          CREATE INDEX IF NOT EXISTS idx_employee_skills_employee ON employee_allowed_skills(employee_name);
+          CREATE INDEX IF NOT EXISTS idx_employee_skills_client ON employee_allowed_skills(client_name);
+        `
+      },
+      {
         name: '007_add_inactive_employees',
         sql: `
           CREATE TABLE IF NOT EXISTS inactive_employees (
