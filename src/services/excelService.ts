@@ -126,7 +126,7 @@ export async function generateSupervisorReport(
   // Add labor lines
   const laborLines = await ReportLaborLineRepository.findByReportId(report.id);
   for (const line of laborLines) {
-    const employee = await EmployeeRepository.findById(line.employeeId);
+    const employee = line.employeeId ? await EmployeeRepository.findById(line.employeeId) : null;
     const row = sheet.getRow(currentRow);
 
     row.getCell(1).value = employee?.name || 'Unknown';
@@ -270,7 +270,7 @@ export async function generateBossReport(
   let totalLaborCost = 0;
 
   for (const line of laborLines) {
-    const employee = await EmployeeRepository.findById(line.employeeId);
+    const employee = line.employeeId ? await EmployeeRepository.findById(line.employeeId) : null;
     const rates = await ChargeOutRateRepository.findBySkillLevel(
       employee?.skillLevel || 'Regular'
     );

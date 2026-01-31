@@ -76,7 +76,8 @@ export interface DailyReport {
 export interface ReportLaborLine {
   id: string;
   reportId: string;
-  employeeId: string;
+  employeeId?: string;
+  employeeName?: string;
   regularHours: number;
   otHours: number;
   dtHours: number;

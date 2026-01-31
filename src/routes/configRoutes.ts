@@ -3,6 +3,8 @@ import { AuthRequest } from '../types/auth';
 import { authMiddleware } from '../middleware';
 import { listFilesInFolder, readJsonFileByPath, readFileByPath, getOrCreateFolder } from '../services/sharepointService';
 import { getSetting } from './settingsRoutes';
+import { calculateHoursBreakdown, isStatHoliday, getWeekStart, getWeekEnd, getClientRules } from '../services/overtimeService';
+import { DailyReportRepository, ReportLaborLineRepository } from '../repositories';
 import * as XLSX from 'xlsx';
 
 const router = Router();
@@ -417,6 +419,113 @@ router.get('/list/:folderName', authMiddleware, async (req: AuthRequest, res: Re
   } catch (error) {
     console.error(`Error fetching config from ${req.params.folderName}:`, error);
     res.status(500).json({ error: 'Failed to fetch config data from SharePoint' });
+  }
+});
+
+/**
+ * POST /api/config/calculate-hours
+ * Calculate RG/OT/DT breakdown based on total hours and context
+ * Loads client-specific OT rules from SharePoint Excel
+ * Body: { totalHours, date, employeeName, clientName }
+ */
+router.post('/calculate-hours', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { totalHours, date, employeeName, clientName } = req.body;
+    
+    if (totalHours === undefined || !date) {
+      res.status(400).json({ error: 'totalHours and date are required' });
+      return;
+    }
+    
+    // Load client-specific OT rules from SharePoint Excel
+    const rules = await getClientRules(clientName, async (path: string) => {
+      try {
+        return await readFileByPath(path);
+      } catch {
+        return null;
+      }
+    });
+    
+    const reportDate = new Date(date);
+    const isStatDay = isStatHoliday(reportDate, rules);
+    
+    // Get employee's weekly regular hours (for weekend calculations)
+    let weeklyRegularHours = 0;
+    
+    if (employeeName) {
+      // Get the week boundaries (Monday to Sunday)
+      const weekStart = getWeekStart(reportDate);
+      const weekEnd = getWeekEnd(reportDate);
+      
+      console.log(`Looking up weekly hours for ${employeeName} from ${weekStart.toISOString()} to ${weekEnd.toISOString()}`);
+      
+      // Query reports for this week (up to but not including current date)
+      const dayBefore = new Date(reportDate);
+      dayBefore.setDate(dayBefore.getDate() - 1);
+      
+      const reports = await DailyReportRepository.findByDateRange(
+        weekStart,
+        dayBefore
+      );
+      
+      // Sum regular hours for this employee from all reports this week
+      for (const report of reports) {
+        const laborLines = await ReportLaborLineRepository.findByReportId(report.id);
+        for (const line of laborLines) {
+          if (line.employeeName?.toLowerCase() === employeeName.toLowerCase()) {
+            weeklyRegularHours += line.regularHours || 0;
+          }
+        }
+      }
+      
+      console.log(`Employee ${employeeName} has ${weeklyRegularHours} regular hours this week so far`);
+    }
+    
+    // Calculate the breakdown using client-specific rules
+    const breakdown = calculateHoursBreakdown({
+      totalHours: parseFloat(totalHours),
+      date: reportDate,
+      employeeWeeklyRegularHours: weeklyRegularHours,
+      isStatHoliday: isStatDay
+    }, rules);
+    
+    res.json({
+      ...breakdown,
+      isStatHoliday: isStatDay,
+      isWeekend: reportDate.getDay() === 0 || reportDate.getDay() === 6,
+      weeklyRegularHoursSoFar: weeklyRegularHours,
+      dayOfWeek: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][reportDate.getDay()],
+      rulesSource: clientName ? `${clientName}/ot_rules.xlsx` : 'default'
+    });
+  } catch (error) {
+    console.error('Error calculating hours:', error);
+    res.status(500).json({ error: 'Failed to calculate hours breakdown' });
+  }
+});
+
+/**
+ * GET /api/config/stat-holidays/:year
+ * Get list of stat holidays for a year
+ */
+router.get('/stat-holidays/:year', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const year = parseInt(req.params.year);
+    const { getStatHolidayDates } = await import('../services/overtimeService');
+    
+    const holidays = getStatHolidayDates(year);
+    const holidayList: { name: string; date: string }[] = [];
+    
+    for (const [name, date] of holidays) {
+      holidayList.push({
+        name,
+        date: date.toISOString().split('T')[0]
+      });
+    }
+    
+    res.json(holidayList);
+  } catch (error) {
+    console.error('Error fetching stat holidays:', error);
+    res.status(500).json({ error: 'Failed to fetch stat holidays' });
   }
 });
 

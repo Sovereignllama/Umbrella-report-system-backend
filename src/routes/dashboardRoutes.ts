@@ -85,7 +85,7 @@ router.get(
 
         // Calculate labor costs
         for (const line of laborLines) {
-          const emp = await EmployeeRepository.findById(line.employeeId);
+          const emp = line.employeeId ? await EmployeeRepository.findById(line.employeeId) : null;
           const rates = await ChargeOutRateRepository.findBySkillLevel(
             emp?.skillLevel || 'Regular'
           );
@@ -189,7 +189,7 @@ router.get(
         let laborCost = 0;
 
         for (const line of laborLines) {
-          const emp = await EmployeeRepository.findById(line.employeeId);
+          const emp = line.employeeId ? await EmployeeRepository.findById(line.employeeId) : null;
           const rates = await ChargeOutRateRepository.findBySkillLevel(
             emp?.skillLevel || 'Regular'
           );
