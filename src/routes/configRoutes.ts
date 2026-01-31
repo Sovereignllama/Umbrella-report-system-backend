@@ -368,8 +368,11 @@ router.get('/equipment', authMiddleware, async (req: AuthRequest, res: Response)
       return;
     }
     
-    // Look for equipment Excel file
-    const excelFile = files.find(f => f.name.toLowerCase().includes('equipment') && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls')));
+    // Look for equipment Excel file (including equipment_rates.xlsx)
+    const excelFile = files.find(f => 
+      (f.name.toLowerCase().includes('equipment') || f.name.toLowerCase().includes('equipment_rates')) && 
+      (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))
+    );
     if (excelFile) {
       console.log(`Reading equipment Excel file: ${excelFile.name}`);
       const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
@@ -377,7 +380,7 @@ router.get('/equipment', authMiddleware, async (req: AuthRequest, res: Response)
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
       
-      // Read column A starting from row 2
+      // Read column A starting from row 2 (skip header)
       const equipment: { name: string; id: string }[] = [];
       let rowIndex = 2;
       
