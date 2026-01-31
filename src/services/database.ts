@@ -90,6 +90,12 @@ export async function runMigrations(): Promise<void> {
         sql: `
           ALTER TABLE daily_reports ADD COLUMN IF NOT EXISTS delays TEXT;
         `
+      },
+      {
+        name: '009_add_tomorrows_activities_column',
+        sql: `
+          ALTER TABLE daily_reports ADD COLUMN IF NOT EXISTS tomorrows_activities TEXT;
+        `
       }
     ];
 

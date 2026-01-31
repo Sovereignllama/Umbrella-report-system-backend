@@ -11,6 +11,7 @@ export interface CreateDailyReportData {
   notes: string;
   materials?: string;
   delays?: string;
+  tomorrowsActivities?: string;
   laborLines: Array<{
     employeeId: string;
     employeeName?: string;
@@ -105,10 +106,10 @@ export class DailyReportRepository {
     return withTransaction(async (client) => {
       // Create report
       const reportResult = await client.query(
-        `INSERT INTO daily_reports (project_id, client_name, project_name, week_folder, report_date, supervisor_id, notes, materials, delays)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO daily_reports (project_id, client_name, project_name, week_folder, report_date, supervisor_id, notes, materials, delays, tomorrows_activities)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING *`,
-        [data.projectId, data.clientName || null, data.projectName || null, data.weekFolder || null, data.reportDate, data.supervisorId, data.notes, data.materials || null, data.delays || null]
+        [data.projectId, data.clientName || null, data.projectName || null, data.weekFolder || null, data.reportDate, data.supervisorId, data.notes, data.materials || null, data.delays || null, data.tomorrowsActivities || null]
       );
       const report = reportResult.rows[0] as DailyReport;
 

@@ -113,6 +113,7 @@ router.post(
         equipmentLines,
         materials,
         delays,
+        tomorrowsActivities,
         attachments,
         overwriteExisting: _overwriteExisting,
       } = req.body;
@@ -190,6 +191,7 @@ router.post(
         notes,
         materials,
         delays,
+        tomorrowsActivities,
         laborLinesCount: mappedLaborLines.length,
         equipmentLinesCount: mappedEquipmentLines.length,
       });
@@ -205,6 +207,7 @@ router.post(
         notes,
         materials,
         delays,
+        tomorrowsActivities,
         laborLines: mappedLaborLines,
         equipmentLines: mappedEquipmentLines,
         attachments,
