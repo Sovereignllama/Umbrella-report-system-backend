@@ -206,6 +206,19 @@ export class DailyReportRepository {
     return result.rowCount > 0;
   }
 
+  /**
+   * Find all reports for a client/project combination (for aggregate reports)
+   */
+  static async findByClientProject(clientName: string, projectName: string): Promise<DailyReport[]> {
+    const result = await query<DailyReport>(
+      `SELECT * FROM daily_reports 
+       WHERE client_name = $1 AND project_name = $2 AND status = 'submitted'
+       ORDER BY report_date ASC`,
+      [clientName, projectName]
+    );
+    return result.rows;
+  }
+
   static async updateExcelUrls(
     id: string,
     supervisorUrl: string,

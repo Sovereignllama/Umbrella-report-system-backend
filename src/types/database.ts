@@ -91,6 +91,7 @@ export interface ReportEquipmentLine {
   id: string;
   reportId: string;
   equipmentId: string;
+  equipmentName?: string;
   hoursUsed: number;
 }
 

@@ -476,6 +476,88 @@ router.get('/list/:folderName', authMiddleware, async (req: AuthRequest, res: Re
 });
 
 /**
+ * GET /api/config/equipment-rates
+ * Get list of equipment with rates from client's equipment_rates.xlsx
+ * Query params: ?client=RTA (required for client-specific equipment)
+ */
+router.get('/equipment-rates', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { client } = req.query;
+    
+    if (!client) {
+      res.status(400).json({ error: 'client parameter is required' });
+      return;
+    }
+    
+    const configFolder = `${DEFAULT_CONFIG_BASE_PATH}/${client}`;
+    const files = await listFilesInFolder(configFolder);
+    console.log(`Looking for equipment_rates in: ${configFolder}`);
+    
+    // Look for equipment_rates Excel file
+    const excelFile = files.find(f => 
+      f.name.toLowerCase().includes('equipment') && 
+      f.name.toLowerCase().includes('rate') &&
+      (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))
+    );
+    
+    if (!excelFile) {
+      console.log(`No equipment_rates file found in: ${configFolder}`);
+      res.json({ data: [] });
+      return;
+    }
+    
+    console.log(`Reading equipment rates file: ${excelFile.name}`);
+    const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    
+    // Read equipment from column A starting from row 2 (row 1 is header)
+    // Same structure as skills: Name, Regular Rate, OT Rate, DT Rate
+    const equipmentRates: { id: string; name: string; regularRate: number; otRate: number; dtRate: number }[] = [];
+    let rowIndex = 2;
+    
+    while (true) {
+      const nameCell = worksheet[`A${rowIndex}`];
+      
+      if (!nameCell || !nameCell.v) {
+        break; // Stop when we hit an empty cell
+      }
+      
+      const name = String(nameCell.v).trim();
+      if (name) {
+        // Parse rates from columns B, C, D
+        const regularCell = worksheet[`B${rowIndex}`];
+        const otCell = worksheet[`C${rowIndex}`];
+        const dtCell = worksheet[`D${rowIndex}`];
+        
+        // Parse currency values (remove $ and convert to number)
+        const parseRate = (cell: any): number => {
+          if (!cell || !cell.v) return 0;
+          const value = String(cell.v).replace(/[$,]/g, '');
+          return parseFloat(value) || 0;
+        };
+        
+        equipmentRates.push({
+          id: String(rowIndex - 1),
+          name,
+          regularRate: parseRate(regularCell),
+          otRate: parseRate(otCell),
+          dtRate: parseRate(dtCell),
+        });
+      }
+      rowIndex++;
+    }
+    
+    console.log(`Loaded ${equipmentRates.length} equipment rates from: ${excelFile.name}`);
+    res.json({ data: equipmentRates });
+  } catch (error) {
+    console.error('Error fetching equipment rates:', error);
+    res.status(500).json({ error: 'Failed to fetch equipment rates from SharePoint' });
+  }
+});
+
+/**
  * GET /api/config/skills
  * Get list of skills/positions from client's skills_rates.xlsx
  * Query params: ?client=RTA (required for client-specific skills)

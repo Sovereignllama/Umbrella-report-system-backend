@@ -3,3 +3,4 @@ export * from './authService';
 export * from './sharepointService';
 export * from './reportSharePointService';
 export * from './excelService';
+export * from './dfaService';
