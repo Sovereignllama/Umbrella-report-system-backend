@@ -130,7 +130,10 @@ async function loadEquipmentRates(clientName: string): Promise<Map<string, Equip
  */
 async function loadDfaTemplate(clientName: string): Promise<ExcelJS.Workbook> {
   const configFolder = `${DEFAULT_CONFIG_BASE_PATH}/${clientName}`;
+  console.log(`Looking for DFA template in: ${configFolder}`);
+  
   const files = await listFilesInFolder(configFolder);
+  console.log(`Found ${files.length} files:`, files.map(f => f.name));
   
   const templateFile = files.find(f => 
     f.name.toLowerCase().includes('dfa') && 
@@ -139,14 +142,16 @@ async function loadDfaTemplate(clientName: string): Promise<ExcelJS.Workbook> {
   );
   
   if (!templateFile) {
-    throw new Error(`No DFA template found for client: ${clientName}`);
+    throw new Error(`No DFA template found for client: ${clientName}. Files found: ${files.map(f => f.name).join(', ')}`);
   }
   
   console.log(`Loading DFA template: ${templateFile.name}`);
   const buffer = await readFileByPath(`${configFolder}/${templateFile.name}`);
+  console.log(`Template loaded, size: ${buffer.length} bytes`);
   
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
+  console.log(`Workbook loaded, sheets: ${workbook.worksheets.map(s => s.name).join(', ')}`);
   
   return workbook;
 }
