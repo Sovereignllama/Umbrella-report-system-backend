@@ -112,6 +112,7 @@ router.post(
         laborLines,
         equipmentLines,
         materials,
+        delays,
         attachments,
         overwriteExisting: _overwriteExisting,
       } = req.body;
@@ -188,6 +189,7 @@ router.post(
         supervisorId: req.user.id,
         notes,
         materials,
+        delays,
         laborLinesCount: mappedLaborLines.length,
         equipmentLinesCount: mappedEquipmentLines.length,
       });
@@ -202,6 +204,7 @@ router.post(
         supervisorId: req.user.id,
         notes,
         materials,
+        delays,
         laborLines: mappedLaborLines,
         equipmentLines: mappedEquipmentLines,
         attachments,

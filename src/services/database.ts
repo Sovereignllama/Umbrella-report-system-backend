@@ -84,6 +84,12 @@ export async function runMigrations(): Promise<void> {
           CREATE INDEX IF NOT EXISTS idx_inactive_employees_name 
           ON inactive_employees(LOWER(employee_name));
         `
+      },
+      {
+        name: '008_add_delays_column',
+        sql: `
+          ALTER TABLE daily_reports ADD COLUMN IF NOT EXISTS delays TEXT;
+        `
       }
     ];
 

@@ -65,6 +65,7 @@ export interface DailyReport {
   supervisorId: string;
   notes: string;
   materials?: string;
+  delays?: string;
   status: 'submitted' | 'archived';
   excelSupervisorUrl?: string;
   excelBossUrl?: string;
