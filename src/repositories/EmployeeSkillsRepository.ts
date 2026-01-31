@@ -14,12 +14,12 @@ export class EmployeeSkillsRepository {
    * Get all allowed skills for an employee for a specific client
    */
   static async getSkillsForEmployee(employeeName: string, clientName: string): Promise<string[]> {
-    const result = await query<{ skill_name: string }>(
+    const result = await query<{ skillName: string }>(
       `SELECT skill_name FROM employee_allowed_skills 
        WHERE LOWER(employee_name) = LOWER($1) AND LOWER(client_name) = LOWER($2)`,
       [employeeName, clientName]
     );
-    return result.rows.map(r => r.skill_name);
+    return result.rows.map(r => r.skillName);
   }
 
   /**
