@@ -1,5 +1,4 @@
 import XlsxPopulate from 'xlsx-populate';
-import ExcelJS from 'exceljs';
 import { DailyReport } from '../types/database';
 import { ReportLaborLineRepository, ReportEquipmentLineRepository, DailyReportRepository } from '../repositories';
 import { readFileByPath, listFilesInFolder, uploadFile, getOrCreateFolder, archiveFile, renameFile } from './sharepointService';
