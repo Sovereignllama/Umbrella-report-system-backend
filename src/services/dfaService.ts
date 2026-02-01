@@ -283,6 +283,8 @@ export async function generateDfaExcel(
   const equipmentStartRow = 32;
   let totalEquipmentCost = 0;
   
+  console.log('Equipment lines:', JSON.stringify(equipmentLines, null, 2));
+  
   for (let i = 0; i < 4; i++) {
     const row = equipmentStartRow + i;
     const line = equipmentLines[i];
@@ -290,11 +292,14 @@ export async function generateDfaExcel(
     if (line) {
       const rate = equipmentRates.get((line.equipmentName || '').toLowerCase());
       const costPerHour = rate ? rate.regularRate : 0;
-      const lineTotalCost = line.hoursUsed * costPerHour;
+      const hours = line.hoursUsed || 0;
+      const lineTotalCost = hours * costPerHour;
       totalEquipmentCost += lineTotalCost;
       
+      console.log(`Equipment row ${row}: name=${line.equipmentName}, hoursUsed=${line.hoursUsed}, hours=${hours}, costPerHour=${costPerHour}`);
+      
       sheet.cell(`A${row}`).value(line.equipmentName || '');  // Description (A-C merged)
-      sheet.cell(`F${row}`).value(line.hoursUsed || 0);       // Hours (column F)
+      sheet.cell(`F${row}`).value(hours);                     // Hours (column F)
       sheet.cell(`G${row}`).value(costPerHour);               // Cost per hour (column G)
     }
   }
