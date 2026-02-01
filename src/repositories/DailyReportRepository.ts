@@ -288,4 +288,26 @@ export class ReportAttachmentRepository {
     );
     return result.rows;
   }
+  
+  static async addAttachments(
+    reportId: string,
+    attachments: Array<{ sharepoint_url: string; file_name: string }>
+  ): Promise<void> {
+    if (!attachments || attachments.length === 0) return;
+    
+    const values = attachments
+      .map((_, idx) => `($1, $${idx * 2 + 2}, $${idx * 2 + 3})`)
+      .join(',');
+    
+    const params: string[] = [reportId];
+    attachments.forEach(att => {
+      params.push(att.sharepoint_url, att.file_name);
+    });
+    
+    await query(
+      `INSERT INTO report_attachments (report_id, sharepoint_url, file_name)
+       VALUES ${values}`,
+      params
+    );
+  }
 }

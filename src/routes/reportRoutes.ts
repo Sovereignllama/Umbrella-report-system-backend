@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import multer from 'multer';
 import { AuthRequest } from '../types/auth';
 import {
   authMiddleware,
@@ -12,6 +13,7 @@ import {
   ClientRepository,
   ReportLaborLineRepository,
   ReportEquipmentLineRepository,
+  ReportAttachmentRepository,
 } from '../repositories';
 import {
   archivePreviousReport,
@@ -22,7 +24,24 @@ import {
   generateAggregateReport,
   uploadAggregateToSharePoint,
   archiveDfaToSharePoint,
+  uploadPhotoToSharePoint,
 } from '../services/dfaService';
+
+// Configure multer for memory storage (files stored in memory as Buffer)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max per file
+  },
+  fileFilter: (_req, file, cb) => {
+    // Accept images only
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  },
+});
 
 const router = Router();
 
@@ -436,6 +455,82 @@ router.delete(
     } catch (error) {
       console.error('Error deleting report:', error);
       res.status(500).json({ error: 'Failed to delete report' });
+    }
+  }
+);
+
+// ============================================
+// UPLOAD PHOTOS
+// ============================================
+
+/**
+ * POST /api/reports/:id/photos
+ * Upload photos for a report
+ */
+router.post(
+  '/:id/photos',
+  authMiddleware,
+  requireSupervisor,
+  upload.array('photos', 10) as any, // Max 10 photos
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const files = req.files as Express.Multer.File[];
+
+      if (!files || files.length === 0) {
+        res.status(400).json({ error: 'No photos provided' });
+        return;
+      }
+
+      // Get the report to find client/project/week info
+      const report = await DailyReportRepository.findById(id);
+      if (!report) {
+        res.status(404).json({ error: 'Report not found' });
+        return;
+      }
+
+      if (!report.clientName || !report.projectName || !report.weekFolder) {
+        res.status(400).json({ error: 'Report missing client/project/week info' });
+        return;
+      }
+
+      console.log(`Uploading ${files.length} photos for report ${id}`);
+
+      const uploadedPhotos: Array<{ sharepoint_url: string; file_name: string }> = [];
+
+      for (const file of files) {
+        try {
+          const result = await uploadPhotoToSharePoint(
+            report.clientName,
+            report.projectName,
+            report.weekFolder,
+            file.buffer,
+            file.originalname
+          );
+          uploadedPhotos.push({
+            sharepoint_url: result.webUrl,
+            file_name: file.originalname,
+          });
+          console.log(`Uploaded photo: ${file.originalname} -> ${result.webUrl}`);
+        } catch (photoError) {
+          console.error(`Failed to upload photo ${file.originalname}:`, photoError);
+        }
+      }
+
+      // Save attachment records to database
+      if (uploadedPhotos.length > 0) {
+        await ReportAttachmentRepository.addAttachments(id, uploadedPhotos);
+      }
+
+      res.json({
+        success: true,
+        uploaded: uploadedPhotos.length,
+        total: files.length,
+        photos: uploadedPhotos,
+      });
+    } catch (error) {
+      console.error('Error uploading photos:', error);
+      res.status(500).json({ error: 'Failed to upload photos' });
     }
   }
 );

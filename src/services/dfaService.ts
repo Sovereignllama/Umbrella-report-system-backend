@@ -625,3 +625,35 @@ async function renumberProjectDfas(
     // Don't throw - this is a best-effort operation
   }
 }
+
+/**
+ * Upload a photo to the week folder in SharePoint
+ */
+export async function uploadPhotoToSharePoint(
+  clientName: string,
+  projectName: string,
+  weekFolder: string,
+  photoBuffer: Buffer,
+  fileName: string
+): Promise<{ fileId: string; webUrl: string }> {
+  // Get or create the folder structure
+  const projectsRoot = await getOrCreateFolder('root', 'projects');
+  const clientFolder = await getOrCreateFolder(projectsRoot.folderId, clientName);
+  const projectFolder = await getOrCreateFolder(clientFolder.folderId, projectName);
+  const weekFolderObj = await getOrCreateFolder(projectFolder.folderId, weekFolder);
+  
+  // Create Photos subfolder within week folder
+  const photosFolder = await getOrCreateFolder(weekFolderObj.folderId, 'Photos');
+  
+  // Generate unique filename to avoid conflicts
+  const timestamp = Date.now();
+  const ext = fileName.substring(fileName.lastIndexOf('.'));
+  const baseName = fileName.substring(0, fileName.lastIndexOf('.'));
+  const uniqueFileName = `${baseName}_${timestamp}${ext}`;
+  
+  // Upload the photo
+  const result = await uploadFile(photosFolder.folderId, uniqueFileName, photoBuffer);
+  console.log(`Uploaded photo to: ${result.webUrl}`);
+  
+  return result;
+}
