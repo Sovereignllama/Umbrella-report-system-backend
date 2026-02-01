@@ -1,4 +1,4 @@
-import XlsxTemplate from 'xlsx-template';
+import XlsxPopulate from 'xlsx-populate';
 import ExcelJS from 'exceljs';
 import { DailyReport } from '../types/database';
 import { ReportLaborLineRepository, ReportEquipmentLineRepository, DailyReportRepository } from '../repositories';
@@ -174,7 +174,8 @@ function formatDateForDfa(date: Date): string {
 }
 
 /**
- * Generate filled DFA Excel from template using xlsx-template
+ * Generate filled DFA Excel from template using xlsx-populate
+ * This writes directly to cells - no placeholder syntax needed in template
  */
 export async function generateDfaExcel(
   report: DailyReport,
@@ -207,96 +208,90 @@ export async function generateDfaExcel(
   // Format date for filename (Jan 31, 2026)
   const formattedDateForFilename = formatDateForDfa(pacificDate);
   
-  // Calculate labor data with costs
+  // Load workbook with xlsx-populate
+  const workbook = await XlsxPopulate.fromDataAsync(templateBuffer);
+  const sheet = workbook.sheet(0);
+  
+  // Fill header cells based on your template layout
+  // Adjust these cell references to match your actual template
+  sheet.cell('I1').value(formattedDate);
+  sheet.cell('I2').value(report.projectName || '');
+  sheet.cell('I3').value(report.clientName);
+  sheet.cell('I5').value(dfaNumber);
+  
+  // Description of Work Completed
+  sheet.cell('A9').value(report.notes || '');
+  
+  // Calculate and fill labor section (starting row 20)
+  const laborStartRow = 20;
   let totalLaborCost = 0;
-  const labor = laborLines.slice(0, 9).map(line => {
-    const rate = skillRates.get((line.skillName || '').toLowerCase());
-    const rgCost = rate ? line.regularHours * rate.regularRate : 0;
-    const otCost = rate ? line.otHours * rate.otRate : 0;
-    const dtCost = rate ? line.dtHours * rate.dtRate : 0;
-    const lineTotalCost = rgCost + otCost + dtCost;
-    totalLaborCost += lineTotalCost;
-    
-    return {
-      employeeName: line.employeeName || '',
-      skillName: line.skillName || '',
-      regularHours: line.regularHours || 0,
-      otHours: line.otHours || 0,
-      dtHours: line.dtHours || 0,
-      rgCost,
-      otCost,
-      dtCost,
-      totalCost: lineTotalCost,
-    };
-  });
   
-  // Pad labor array to 9 rows for template
-  while (labor.length < 9) {
-    labor.push({
-      employeeName: '',
-      skillName: '',
-      regularHours: 0,
-      otHours: 0,
-      dtHours: 0,
-      rgCost: 0,
-      otCost: 0,
-      dtCost: 0,
-      totalCost: 0,
-    });
+  for (let i = 0; i < 9; i++) {
+    const row = laborStartRow + i;
+    const line = laborLines[i];
+    
+    if (line) {
+      const rate = skillRates.get((line.skillName || '').toLowerCase());
+      const rgCost = rate ? line.regularHours * rate.regularRate : 0;
+      const otCost = rate ? line.otHours * rate.otRate : 0;
+      const dtCost = rate ? line.dtHours * rate.dtRate : 0;
+      const lineTotalCost = rgCost + otCost + dtCost;
+      totalLaborCost += lineTotalCost;
+      
+      sheet.cell(`A${row}`).value(line.employeeName || '');
+      sheet.cell(`B${row}`).value(line.skillName || '');
+      sheet.cell(`C${row}`).value(line.regularHours || 0);
+      sheet.cell(`D${row}`).value(line.otHours || 0);
+      sheet.cell(`E${row}`).value(line.dtHours || 0);
+      sheet.cell(`F${row}`).value(rgCost);
+      sheet.cell(`G${row}`).value(otCost);
+      sheet.cell(`H${row}`).value(dtCost);
+      sheet.cell(`I${row}`).value(lineTotalCost);
+    }
   }
   
-  // Calculate equipment data with costs
+  // Labor total
+  sheet.cell('I29').value(totalLaborCost);
+  
+  // Equipment section (starting row 32)
+  const equipmentStartRow = 32;
   let totalEquipmentCost = 0;
-  const equipment = equipmentLines.slice(0, 5).map(line => {
-    const rate = equipmentRates.get((line.equipmentName || '').toLowerCase());
-    const cost = rate ? rate.regularRate : 0;
-    const lineTotalCost = line.hoursUsed * cost;
-    totalEquipmentCost += lineTotalCost;
-    
-    return {
-      equipmentName: line.equipmentName || '',
-      hoursUsed: line.hoursUsed || 0,
-      rate: cost,
-      totalCost: lineTotalCost,
-    };
-  });
   
-  // Pad equipment array to 5 rows for template
-  while (equipment.length < 5) {
-    equipment.push({
-      equipmentName: '',
-      hoursUsed: 0,
-      rate: 0,
-      totalCost: 0,
-    });
+  for (let i = 0; i < 5; i++) {
+    const row = equipmentStartRow + i;
+    const line = equipmentLines[i];
+    
+    if (line) {
+      const rate = equipmentRates.get((line.equipmentName || '').toLowerCase());
+      const cost = rate ? rate.regularRate : 0;
+      const lineTotalCost = line.hoursUsed * cost;
+      totalEquipmentCost += lineTotalCost;
+      
+      sheet.cell(`A${row}`).value(line.equipmentName || '');
+      sheet.cell(`C${row}`).value(line.hoursUsed || 0);
+      sheet.cell(`D${row}`).value(cost);
+      sheet.cell(`E${row}`).value(lineTotalCost);
+    }
   }
   
+  // Equipment total
+  sheet.cell('E37').value(totalEquipmentCost);
+  
+  // Materials
+  sheet.cell('A39').value(report.materials || '');
+  
+  // Delays and Safety Concerns
+  sheet.cell('A46').value(report.delays || '');
+  
+  // DFA Total
   const totalCost = totalLaborCost + totalEquipmentCost;
+  sheet.cell('I45').value(totalCost);
   
-  // Create template and substitute values
-  const template = new XlsxTemplate(templateBuffer);
-  
-  // Substitute all placeholders
-  template.substitute(1, {
-    date: formattedDate,
-    projectName: report.projectName || '',
-    clientName: report.clientName,
-    dfaNumber: dfaNumber,
-    notes: report.notes || '',
-    materials: report.materials || '',
-    delays: report.delays || '',
-    tomorrowsActivities: report.tomorrowsActivities || '',
-    totalLaborCost: totalLaborCost,
-    totalEquipmentCost: totalEquipmentCost,
-    totalCost: totalCost,
-    // Labor rows (individual placeholders for each row)
-    labor: labor,
-    // Equipment rows
-    equipment: equipment,
-  });
+  // Tomorrows Planned Activities
+  sheet.cell('A52').value(report.tomorrowsActivities || '');
   
   // Generate the output buffer
-  const outputBuffer = template.generate({ type: 'nodebuffer' }) as Buffer;
+  const outputBuffer = await workbook.outputAsync() as Buffer;
   
   console.log(`DFA buffer generated, size: ${outputBuffer.length} bytes`);
   
