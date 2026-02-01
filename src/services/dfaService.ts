@@ -275,18 +275,20 @@ export async function generateDfaExcel(
     }
   }
   
-  // Equipment total (Row 36)
-  sheet.cell('F36').value(totalEquipmentCost);
+  // Equipment total (Row 36, Column H)
+  sheet.cell('H36').value(totalEquipmentCost);
   
-  // Materials (Row 39)
+  // Materials section
+  // Row 37 = "Materials" header, Row 38 = column headers
+  // Data starts row 39, Row 44 = Total
   sheet.cell('A39').value(report.materials || '');
   
-  // Delays and Safety Concerns (Row 46)
-  sheet.cell('A46').value(report.delays || '');
+  // Delays and Safety Concerns (Row 45 - same row as DFA Total, left side)
+  sheet.cell('A45').value(report.delays || '');
   
-  // DFA Total (Row 45, Column I)
+  // DFA Total (Row 45, Column J)
   const totalCost = totalLaborCost + totalEquipmentCost;
-  sheet.cell('I45').value(totalCost);
+  sheet.cell('J45').value(totalCost);
   
   // Tomorrows Planned Activities (Row 52)
   sheet.cell('A52').value(report.tomorrowsActivities || '');
