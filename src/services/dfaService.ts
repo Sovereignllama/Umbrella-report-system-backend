@@ -283,8 +283,8 @@ export async function generateDfaExcel(
   // Data starts row 39, Row 44 = Total
   sheet.cell('A39').value(report.materials || '');
   
-  // Delays and Safety Concerns (Row 45 - same row as DFA Total, left side)
-  sheet.cell('A45').value(report.delays || '');
+  // Delays and Safety Concerns (Row 46)
+  sheet.cell('A46').value(report.delays || '');
   
   // DFA Total (Row 45, Column J)
   const totalCost = totalLaborCost + totalEquipmentCost;
