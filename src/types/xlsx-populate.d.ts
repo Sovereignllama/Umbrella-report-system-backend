@@ -12,6 +12,7 @@ declare module 'xlsx-populate' {
   interface Workbook {
     sheet(index: number): Sheet;
     sheet(name: string): Sheet;
+    sheets(): Sheet[];
     outputAsync(): Promise<Buffer>;
   }
 
