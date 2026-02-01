@@ -292,17 +292,20 @@ export async function generateDfaExcel(
     if (line) {
       const rate = equipmentRates.get((line.equipmentName || '').toLowerCase());
       const costPerHour = rate ? rate.regularRate : 0;
-      const hours = line.hoursUsed || 0;
+      // Parse hours as float to ensure proper calculation
+      const hours = parseFloat(String(line.hoursUsed)) || 0;
       const lineTotalCost = hours * costPerHour;
       totalEquipmentCost += lineTotalCost;
       
-      console.log(`Equipment row ${row}: name=${line.equipmentName}, hoursUsed=${line.hoursUsed}, hours=${hours}, costPerHour=${costPerHour}`);
+      console.log(`Equipment row ${row}: name=${line.equipmentName}, hoursUsed=${line.hoursUsed}, hours=${hours}, costPerHour=${costPerHour}, lineTotal=${lineTotalCost}`);
       
       sheet.cell(`A${row}`).value(line.equipmentName || '');  // Description (A-C merged)
       sheet.cell(`F${row}`).value(hours);                     // Hours (column F)
-      sheet.cell(`G${row}`).value(costPerHour);               // Cost per hour (column G)
+      sheet.cell(`G${row}`).value(lineTotalCost);             // Line total cost (column G) - hours × rate
     }
   }
+  
+  console.log(`Total equipment cost: ${totalEquipmentCost}`);
   
   // Equipment total (Row 36, Column H)
   sheet.cell('H36').value(totalEquipmentCost);
