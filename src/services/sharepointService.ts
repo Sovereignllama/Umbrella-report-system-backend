@@ -358,8 +358,9 @@ export async function archiveFile(
   } catch (error: any) {
     const status = error.response?.status;
     
-    // If file is locked, throw specific error
-    if (status === 423) {
+    // If file is locked (423) or conflict (409 - often means file is open), throw specific error
+    if (status === 423 || status === 409) {
+      console.error(`File locked/conflict (status ${status}):`, error.response?.data);
       throw new Error('FILE_LOCKED');
     }
     

@@ -415,8 +415,13 @@ router.delete(
           });
           return;
         }
-        // For other archive errors, log but continue with delete
-        console.error('Archive error (non-blocking):', archiveError);
+        // For other archive errors, also stop deletion and return error
+        console.error('Archive error:', archiveError);
+        res.status(500).json({ 
+          error: 'ARCHIVE_FAILED',
+          message: 'Failed to archive the DFA file. Please try again.' 
+        });
+        return;
       }
 
       // Delete the report
