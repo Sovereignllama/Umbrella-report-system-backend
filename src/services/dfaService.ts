@@ -462,9 +462,9 @@ export async function generateAggregateReport(
     // Use sequential DFA number (1-based index)
     const dfaNumber = `DFA-${idx + 1}`;
     
-    // Fill row: A=DFA#, B=Date, D=Labour, F=Equipment, H=Total
-    sheet.cell(`A${row}`).value(dfaNumber);
-    sheet.cell(`B${row}`).value(formattedDate);
+    // Fill row: B=DFA#, C=Date, D=Labour, F=Equipment, H=Total
+    sheet.cell(`B${row}`).value(dfaNumber);
+    sheet.cell(`C${row}`).value(formattedDate);
     sheet.cell(`D${row}`).value(laborCost);
     sheet.cell(`F${row}`).value(equipmentCost);
     sheet.cell(`H${row}`).value(totalCost);
