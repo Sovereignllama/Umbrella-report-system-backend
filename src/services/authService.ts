@@ -70,8 +70,9 @@ export async function verifyAzureToken(token: string): Promise<JwtPayload> {
       Buffer.from(parts[1], 'base64url').toString('utf-8')
     );
 
-    // Validate token hasn't expired
-    if (payload.exp && payload.exp < Date.now() / 1000) {
+    // Validate token hasn't expired (with 5 minute tolerance for clock skew)
+    const clockTolerance = 5 * 60; // 5 minutes in seconds
+    if (payload.exp && payload.exp < (Date.now() / 1000) - clockTolerance) {
       throw new Error('Token has expired');
     }
 
