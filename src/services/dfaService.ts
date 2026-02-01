@@ -289,14 +289,13 @@ export async function generateDfaExcel(
     
     if (line) {
       const rate = equipmentRates.get((line.equipmentName || '').toLowerCase());
-      const cost = rate ? rate.regularRate : 0;
-      const lineTotalCost = line.hoursUsed * cost;
+      const costPerHour = rate ? rate.regularRate : 0;
+      const lineTotalCost = line.hoursUsed * costPerHour;
       totalEquipmentCost += lineTotalCost;
       
-      sheet.cell(`A${row}`).value(line.equipmentName || '');  // Description
-      sheet.cell(`D${row}`).value(line.hoursUsed || 0);       // Hours
-      sheet.cell(`E${row}`).value(cost);                      // Cost
-      sheet.cell(`F${row}`).value(lineTotalCost);             // Total Cost
+      sheet.cell(`A${row}`).value(line.equipmentName || '');  // Description (A-C merged)
+      sheet.cell(`F${row}`).value(line.hoursUsed || 0);       // Hours (column F)
+      sheet.cell(`G${row}`).value(costPerHour);               // Cost per hour (column G)
     }
   }
   
