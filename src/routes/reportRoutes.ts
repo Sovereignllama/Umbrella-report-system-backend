@@ -405,7 +405,19 @@ router.delete(
       }
 
       // Archive the DFA to SharePoint before deleting
-      await archiveDfaToSharePoint(report);
+      try {
+        await archiveDfaToSharePoint(report);
+      } catch (archiveError: any) {
+        if (archiveError.message === 'FILE_LOCKED') {
+          res.status(423).json({ 
+            error: 'FILE_LOCKED',
+            message: 'Please close the Excel file in SharePoint before deleting this report.' 
+          });
+          return;
+        }
+        // For other archive errors, log but continue with delete
+        console.error('Archive error (non-blocking):', archiveError);
+      }
 
       // Delete the report
       const deleted = await DailyReportRepository.deleteById(id);

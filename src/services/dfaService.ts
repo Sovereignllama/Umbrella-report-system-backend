@@ -525,9 +525,13 @@ export async function archiveDfaToSharePoint(
     // Now renumber all remaining DFAs for this project
     await renumberProjectDfas(report.clientName, report.projectName);
     
-  } catch (error) {
+  } catch (error: any) {
+    // Re-throw FILE_LOCKED error so it can be handled by the route
+    if (error.message === 'FILE_LOCKED') {
+      throw error;
+    }
     console.error('Error archiving DFA:', error);
-    // Don't throw - we still want the report delete to succeed even if archive fails
+    // Don't throw for other errors - we still want the report delete to succeed
   }
 }
 

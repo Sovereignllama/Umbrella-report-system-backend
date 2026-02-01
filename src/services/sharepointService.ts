@@ -355,7 +355,14 @@ export async function archiveFile(
       `/drives/${SHAREPOINT_DRIVE_ID}/items/${fileId}`,
       patchBody
     );
-  } catch (error) {
+  } catch (error: any) {
+    const status = error.response?.status;
+    
+    // If file is locked, throw specific error
+    if (status === 423) {
+      throw new Error('FILE_LOCKED');
+    }
+    
     console.error('Failed to archive file:', error);
     throw new Error('Failed to archive file');
   }
