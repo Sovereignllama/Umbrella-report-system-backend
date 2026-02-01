@@ -212,17 +212,17 @@ export async function generateDfaExcel(
   const workbook = await XlsxPopulate.fromDataAsync(templateBuffer);
   const sheet = workbook.sheet(0);
   
-  // Fill header cells based on your template layout
-  // Adjust these cell references to match your actual template
-  sheet.cell('I1').value(formattedDate);
-  sheet.cell('I2').value(report.projectName || '');
-  sheet.cell('I3').value(report.clientName);
-  sheet.cell('I5').value(dfaNumber);
+  // Fill header cells (Row 1-5, Column I for values)
+  sheet.cell('I1').value(formattedDate);        // Date
+  sheet.cell('I2').value(report.projectName || '');  // Job Name
+  sheet.cell('I3').value(report.clientName);    // Client
+  sheet.cell('I5').value(dfaNumber);            // DFA Number
   
-  // Description of Work Completed
+  // Description of Work Completed (Row 9, merged area)
   sheet.cell('A9').value(report.notes || '');
   
-  // Calculate and fill labor section (starting row 20)
+  // Calculate and fill labor section
+  // Row 19 = headers, Row 20-28 = data (9 rows)
   const laborStartRow = 20;
   let totalLaborCost = 0;
   
@@ -238,26 +238,27 @@ export async function generateDfaExcel(
       const lineTotalCost = rgCost + otCost + dtCost;
       totalLaborCost += lineTotalCost;
       
-      sheet.cell(`A${row}`).value(line.employeeName || '');
-      sheet.cell(`B${row}`).value(line.skillName || '');
-      sheet.cell(`C${row}`).value(line.regularHours || 0);
-      sheet.cell(`D${row}`).value(line.otHours || 0);
-      sheet.cell(`E${row}`).value(line.dtHours || 0);
-      sheet.cell(`F${row}`).value(rgCost);
-      sheet.cell(`G${row}`).value(otCost);
-      sheet.cell(`H${row}`).value(dtCost);
-      sheet.cell(`I${row}`).value(lineTotalCost);
+      sheet.cell(`A${row}`).value(line.employeeName || '');  // Name
+      sheet.cell(`B${row}`).value(line.skillName || '');     // Position
+      sheet.cell(`C${row}`).value(line.regularHours || 0);   // RG hours
+      sheet.cell(`D${row}`).value(line.otHours || 0);        // OT hours
+      sheet.cell(`E${row}`).value(line.dtHours || 0);        // DT hours
+      sheet.cell(`F${row}`).value(rgCost);                   // RG $
+      sheet.cell(`G${row}`).value(otCost);                   // OT $
+      sheet.cell(`H${row}`).value(dtCost);                   // DT $
+      sheet.cell(`I${row}`).value(lineTotalCost);            // Total Cost
     }
   }
   
-  // Labor total
-  sheet.cell('I29').value(totalLaborCost);
+  // Labor total (no specific cell shown, skip for now - template may have formula)
   
-  // Equipment section (starting row 32)
+  // Equipment section
+  // Row 30 = "Equipment" header, Row 31 = column headers
+  // Row 32-35 = data (4 rows), Row 36 = Total
   const equipmentStartRow = 32;
   let totalEquipmentCost = 0;
   
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 4; i++) {
     const row = equipmentStartRow + i;
     const line = equipmentLines[i];
     
@@ -267,27 +268,27 @@ export async function generateDfaExcel(
       const lineTotalCost = line.hoursUsed * cost;
       totalEquipmentCost += lineTotalCost;
       
-      sheet.cell(`A${row}`).value(line.equipmentName || '');
-      sheet.cell(`C${row}`).value(line.hoursUsed || 0);
-      sheet.cell(`D${row}`).value(cost);
-      sheet.cell(`E${row}`).value(lineTotalCost);
+      sheet.cell(`A${row}`).value(line.equipmentName || '');  // Description
+      sheet.cell(`D${row}`).value(line.hoursUsed || 0);       // Hours
+      sheet.cell(`E${row}`).value(cost);                      // Cost
+      sheet.cell(`F${row}`).value(lineTotalCost);             // Total Cost
     }
   }
   
-  // Equipment total
-  sheet.cell('E37').value(totalEquipmentCost);
+  // Equipment total (Row 36)
+  sheet.cell('F36').value(totalEquipmentCost);
   
-  // Materials
+  // Materials (Row 39)
   sheet.cell('A39').value(report.materials || '');
   
-  // Delays and Safety Concerns
+  // Delays and Safety Concerns (Row 46)
   sheet.cell('A46').value(report.delays || '');
   
-  // DFA Total
+  // DFA Total (Row 45, Column I)
   const totalCost = totalLaborCost + totalEquipmentCost;
   sheet.cell('I45').value(totalCost);
   
-  // Tomorrows Planned Activities
+  // Tomorrows Planned Activities (Row 52)
   sheet.cell('A52').value(report.tomorrowsActivities || '');
   
   // Generate the output buffer
