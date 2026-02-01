@@ -209,14 +209,33 @@ export async function generateDfaExcel(
   const formattedDateForFilename = formatDateForDfa(pacificDate);
   
   // Load workbook with xlsx-populate
+  console.log('Loading workbook from template buffer...');
   const workbook = await XlsxPopulate.fromDataAsync(templateBuffer);
-  const sheet = workbook.sheet(0);
+  
+  // Log all sheet names to find the right one
+  const sheetNames = workbook.sheets().map((s: any) => s.name());
+  console.log(`Workbook sheets: ${JSON.stringify(sheetNames)}`);
+  
+  // Find the DFA sheet (first sheet, or one that's not "DFA Log")
+  let sheet = workbook.sheet(0);
+  for (const s of workbook.sheets()) {
+    const name = s.name().toLowerCase();
+    if (!name.includes('log') && !name.includes('data')) {
+      sheet = s;
+      break;
+    }
+  }
+  console.log(`Using sheet: "${sheet.name()}"`);
   
   // Fill header cells (Row 1-5, Column I for values)
+  console.log(`Writing header - Date: ${formattedDate}, Project: ${report.projectName}, Client: ${report.clientName}, DFA#: ${dfaNumber}`);
   sheet.cell('I1').value(formattedDate);        // Date
   sheet.cell('I2').value(report.projectName || '');  // Job Name
   sheet.cell('I3').value(report.clientName);    // Client
   sheet.cell('I5').value(dfaNumber);            // DFA Number
+  
+  // Verify values were written
+  console.log(`Verify I1: ${sheet.cell('I1').value()}, I2: ${sheet.cell('I2').value()}, I3: ${sheet.cell('I3').value()}, I5: ${sheet.cell('I5').value()}`);
   
   // Description of Work Completed (Row 9, merged area)
   sheet.cell('A9').value(report.notes || '');
@@ -293,7 +312,11 @@ export async function generateDfaExcel(
   // Tomorrows Planned Activities (Row 52)
   sheet.cell('A52').value(report.tomorrowsActivities || '');
   
+  // Final verification log
+  console.log(`Final values - Notes A9: "${sheet.cell('A9').value()}", Materials A39: "${sheet.cell('A39').value()}", Delays A46: "${sheet.cell('A46').value()}", Total J45: ${sheet.cell('J45').value()}`);
+  
   // Generate the output buffer
+  console.log('Generating output buffer...');
   const outputBuffer = await workbook.outputAsync() as Buffer;
   
   console.log(`DFA buffer generated, size: ${outputBuffer.length} bytes`);
