@@ -369,53 +369,64 @@ export async function uploadDfaToSharePoint(
 }
 
 /**
- * Generate aggregate report for a project (all DFAs)
+ * Load aggregate template from SharePoint
+ */
+async function loadAggregateTemplateBuffer(clientName: string): Promise<Buffer> {
+  const configFolder = `${DEFAULT_CONFIG_BASE_PATH}/${clientName}`;
+  console.log(`Looking for aggregate template in: ${configFolder}`);
+  
+  const files = await listFilesInFolder(configFolder);
+  
+  const templateFile = files.find(f => 
+    f.name.toLowerCase().includes('aggregate') && 
+    (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))
+  );
+  
+  if (!templateFile) {
+    throw new Error(`No aggregate template found for client: ${clientName}. Files found: ${files.map(f => f.name).join(', ')}`);
+  }
+  
+  console.log(`Loading aggregate template: ${templateFile.name}`);
+  const buffer = await readFileByPath(`${configFolder}/${templateFile.name}`);
+  console.log(`Aggregate template loaded, size: ${buffer.length} bytes`);
+  
+  return buffer;
+}
+
+/**
+ * Generate aggregate report for a project (all DFAs) using template
  */
 export async function generateAggregateReport(
   clientName: string,
   projectName: string,
   reports: DailyReport[]
 ): Promise<{ buffer: Buffer; fileName: string }> {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('DFA Summary');
-  
-  // Load rates
-  const [skillRates, equipmentRates] = await Promise.all([
+  // Load template and rates
+  const [templateBuffer, skillRates, equipmentRates] = await Promise.all([
+    loadAggregateTemplateBuffer(clientName),
     loadSkillRates(clientName),
     loadEquipmentRates(clientName),
   ]);
   
-  // Set up columns
-  sheet.columns = [
-    { header: 'DFA #', key: 'dfaNumber', width: 20 },
-    { header: 'Date', key: 'date', width: 12 },
-    { header: 'Project', key: 'project', width: 25 },
-    { header: 'Labor Cost', key: 'laborCost', width: 15 },
-    { header: 'Equipment Cost', key: 'equipmentCost', width: 15 },
-    { header: 'Total Cost', key: 'totalCost', width: 15 },
-  ];
-  
-  // Style header row
-  const headerRow = sheet.getRow(1);
-  headerRow.font = { bold: true };
-  headerRow.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FF4472C4' },
-  };
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-  
-  let grandTotalLabor = 0;
-  let grandTotalEquipment = 0;
+  // Load workbook with xlsx-populate
+  const workbook = await XlsxPopulate.fromDataAsync(templateBuffer);
+  const sheet = workbook.sheet(0);
   
   // Sort reports by date to ensure consistent DFA numbering
   const sortedReports = [...reports].sort((a, b) => 
     new Date(a.reportDate).getTime() - new Date(b.reportDate).getTime()
   );
   
+  // Data starts at row 12
+  const dataStartRow = 12;
+  let grandTotalLabor = 0;
+  let grandTotalEquipment = 0;
+  
   // Process each report
   for (let idx = 0; idx < sortedReports.length; idx++) {
     const report = sortedReports[idx];
+    const row = dataStartRow + idx;
+    
     const laborLines = await ReportLaborLineRepository.findByReportId(report.id);
     const equipmentLines = await ReportEquipmentLineRepository.findByReportId(report.id);
     
@@ -435,54 +446,41 @@ export async function generateAggregateReport(
     for (const line of equipmentLines) {
       const rate = equipmentRates.get((line.equipmentName || '').toLowerCase());
       if (rate) {
-        equipmentCost += line.hoursUsed * rate.regularRate;
+        const hours = parseFloat(String(line.hoursUsed)) || 0;
+        equipmentCost += hours * rate.regularRate;
       }
     }
     
-    // Use sequential DFA number (1-based index)
-    const dfaNumber = `DFA-${idx + 1}`;
-    const reportDate = new Date(report.reportDate);
-    const formattedDate = formatDateForDfa(reportDate);
-    
-    sheet.addRow({
-      dfaNumber: `${formattedDate} - ${report.projectName} - ${dfaNumber}`,
-      date: `${reportDate.getMonth() + 1}/${reportDate.getDate()}/${reportDate.getFullYear()}`,
-      project: report.projectName,
-      laborCost,
-      equipmentCost,
-      totalCost: laborCost + equipmentCost,
-    });
-    
+    const totalCost = laborCost + equipmentCost;
     grandTotalLabor += laborCost;
     grandTotalEquipment += equipmentCost;
+    
+    // Parse report date without timezone shift
+    const dateStr = String(report.reportDate).split('T')[0];
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const formattedDate = `${month}/${day}/${year}`;
+    
+    // Use sequential DFA number (1-based index)
+    const dfaNumber = `DFA-${idx + 1}`;
+    
+    // Fill row: A=DFA#, B=Date, D=Labour, F=Equipment, H=Total
+    sheet.cell(`A${row}`).value(dfaNumber);
+    sheet.cell(`B${row}`).value(formattedDate);
+    sheet.cell(`D${row}`).value(laborCost);
+    sheet.cell(`F${row}`).value(equipmentCost);
+    sheet.cell(`H${row}`).value(totalCost);
   }
   
-  // Add totals row
-  const totalsRow = sheet.addRow({
-    dfaNumber: 'TOTALS',
-    date: '',
-    project: '',
-    laborCost: grandTotalLabor,
-    equipmentCost: grandTotalEquipment,
-    totalCost: grandTotalLabor + grandTotalEquipment,
-  });
-  totalsRow.font = { bold: true };
-  totalsRow.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFCCCCCC' },
-  };
+  // Row 59 has the totals (template should have formulas, but we can set values too)
+  // The template likely has SUM formulas, so we don't need to fill these
   
-  // Format currency columns
-  sheet.getColumn('laborCost').numFmt = '$#,##0.00';
-  sheet.getColumn('equipmentCost').numFmt = '$#,##0.00';
-  sheet.getColumn('totalCost').numFmt = '$#,##0.00';
-  
-  const buffer = await workbook.xlsx.writeBuffer();
+  const outputBuffer = await workbook.outputAsync() as Buffer;
   const fileName = `${clientName}_${projectName}_DFA_Aggregate.xlsx`;
   
+  console.log(`Aggregate report generated: ${fileName}, ${sortedReports.length} DFAs, Total: $${(grandTotalLabor + grandTotalEquipment).toFixed(2)}`);
+  
   return {
-    buffer: Buffer.from(buffer),
+    buffer: outputBuffer,
     fileName,
   };
 }
