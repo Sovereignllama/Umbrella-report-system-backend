@@ -544,11 +544,12 @@ export async function archiveDfaToSharePoint(
     const projectFolder = await getOrCreateFolder(clientFolder.folderId, report.projectName);
     const archiveFolder = await getOrCreateFolder(projectFolder.folderId, 'Archive');
     
-    // Create new filename with "(Old)" suffix
-    // "Jan 31, 2026 - Anode Hauling - DFA-1.xlsx" -> "Jan 31, 2026 - Anode Hauling - DFA-1 (Old).xlsx"
-    const newFileName = dfaFile.name.replace('.xlsx', ' (Old).xlsx');
+    // Create new filename with "(Old)" suffix and timestamp to ensure uniqueness
+    // "Jan 31, 2026 - Anode Hauling - DFA-1.xlsx" -> "Jan 31, 2026 - Anode Hauling - DFA-1 (Old-1706751600000).xlsx"
+    const timestamp = Date.now();
+    const newFileName = dfaFile.name.replace('.xlsx', ` (Old-${timestamp}).xlsx`);
     
-    // Move the DFA to Archive folder with "(Old)" suffix
+    // Move the DFA to Archive folder with unique "(Old-timestamp)" suffix
     await archiveFile(dfaFile.id, archiveFolder.folderId, newFileName);
     
     console.log(`Archived DFA ${dfaFile.name} as ${newFileName}`);

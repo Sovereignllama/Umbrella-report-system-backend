@@ -357,10 +357,23 @@ export async function archiveFile(
     );
   } catch (error: any) {
     const status = error.response?.status;
+    const errorCode = error.response?.data?.error?.code;
     
-    // If file is locked (423) or conflict (409 - often means file is open), throw specific error
-    if (status === 423 || status === 409) {
-      console.error(`File locked/conflict (status ${status}):`, error.response?.data);
+    // If file is locked (423), throw FILE_LOCKED error
+    if (status === 423) {
+      console.error(`File locked (status ${status}):`, error.response?.data);
+      throw new Error('FILE_LOCKED');
+    }
+    
+    // If 409 with nameAlreadyExists, this is a naming conflict not a lock
+    if (status === 409 && errorCode === 'nameAlreadyExists') {
+      console.error('Archive naming conflict:', error.response?.data);
+      throw new Error('NAME_CONFLICT');
+    }
+    
+    // If 409 without nameAlreadyExists, it might be a file lock
+    if (status === 409) {
+      console.error(`File conflict (status ${status}):`, error.response?.data);
       throw new Error('FILE_LOCKED');
     }
     
