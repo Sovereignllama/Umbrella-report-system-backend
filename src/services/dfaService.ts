@@ -199,12 +199,13 @@ export async function generateDfaExcel(
   const laborLines = await ReportLaborLineRepository.findByReportId(report.id);
   const equipmentLines = await ReportEquipmentLineRepository.findByReportId(report.id);
   
-  // Format date for display in Excel (MM/DD/YYYY)
+  // Format date for display in Excel (MM/DD/YYYY) - use Pacific timezone
   const reportDate = new Date(report.reportDate);
-  const formattedDate = `${reportDate.getMonth() + 1}/${reportDate.getDate()}/${reportDate.getFullYear()}`;
+  const pacificDate = new Date(reportDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const formattedDate = `${pacificDate.getMonth() + 1}/${pacificDate.getDate()}/${pacificDate.getFullYear()}`;
   
   // Format date for filename (Jan 31, 2026)
-  const formattedDateForFilename = formatDateForDfa(reportDate);
+  const formattedDateForFilename = formatDateForDfa(pacificDate);
   
   // Calculate labor data with costs
   let totalLaborCost = 0;
