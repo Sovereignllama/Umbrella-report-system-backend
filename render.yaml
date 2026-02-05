@@ -3,7 +3,7 @@ services:
     name: umbrella-reports-api
     runtime: node
     region: oregon  # or ohio, frankfurt, singapore
-    plan: free  # free, starter, standard, pro
+    plan: pro  # free, starter, standard, pro
     buildCommand: npm install && npm run build
     startCommand: npm start
     healthCheckPath: /api/health

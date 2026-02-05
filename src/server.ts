@@ -1,7 +1,7 @@
 import express, { Express } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { testConnection, runMigrations } from './services/database';
+import { testConnection, runMigrations, query } from './services/database';
 import { initializeSharePoint } from './services/sharepointService';
 import { startPayrollScheduler } from './services/schedulerService';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -23,8 +23,13 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Health check
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+app.get('/api/health', async (_req, res) => {
+  try {
+    await query('SELECT 1');
+    res.json({ status: 'OK', database: 'connected', timestamp: new Date().toISOString() });
+  } catch {
+    res.status(503).json({ status: 'ERROR', database: 'disconnected', timestamp: new Date().toISOString() });
+  }
 });
 
 // Routes

@@ -245,52 +245,7 @@ router.post(
       const project = isValidProjectUuid ? await ProjectRepository.findById(projectId) : null;
       const displayProjectName = projectName || project?.name || 'Unknown Project';
 
-      // Generate and upload DFA Excel to SharePoint
-      if (clientName && displayProjectName && weekFolder) {
-        try {
-          console.log('Generating DFA Excel...');
-          const { buffer: dfaBuffer, fileName: dfaFileName, totalCost } = await generateDfaExcel(
-            newReport,
-            req.user.name || 'Unknown Supervisor'
-          );
-          
-          console.log(`DFA generated: ${dfaFileName}, Total Cost: $${totalCost.toFixed(2)}`);
-          
-          // Upload DFA to week folder
-          const dfaUploadResult = await uploadDfaToSharePoint(
-            clientName,
-            displayProjectName,
-            weekFolder,
-            dfaBuffer,
-            dfaFileName
-          );
-          console.log(`DFA uploaded: ${dfaUploadResult.webUrl}`);
-          
-          // Generate and upload aggregate report to project folder
-          const projectReports = await DailyReportRepository.findByClientProject(clientName, displayProjectName);
-          if (projectReports.length > 0) {
-            console.log(`Generating aggregate report for ${projectReports.length} DFAs...`);
-            const { buffer: aggBuffer, fileName: aggFileName } = await generateAggregateReport(
-              clientName,
-              displayProjectName,
-              projectReports
-            );
-            
-            await uploadAggregateToSharePoint(
-              clientName,
-              displayProjectName,
-              aggBuffer,
-              aggFileName
-            );
-            console.log('Aggregate report uploaded');
-          }
-        } catch (dfaError) {
-          console.error('Error generating/uploading DFA:', dfaError);
-          console.error('DFA Error details:', dfaError instanceof Error ? dfaError.message : String(dfaError));
-          // Don't fail the request, just log the error
-        }
-      }
-      
+      // Respond immediately so the client doesn't time out
       res.status(201).json({
         id: newReport.id,
         message: existingReport ? 'Report updated successfully' : 'Report submitted successfully',
@@ -298,6 +253,54 @@ router.post(
         projectName: displayProjectName,
         weekFolder,
       });
+
+      // Generate and upload DFA Excel to SharePoint asynchronously (non-blocking)
+      if (clientName && displayProjectName && weekFolder) {
+        const supervisorName = req.user.name || 'Unknown Supervisor';
+        setImmediate(async () => {
+          try {
+            console.log('Generating DFA Excel...');
+            const { buffer: dfaBuffer, fileName: dfaFileName, totalCost } = await generateDfaExcel(
+              newReport,
+              supervisorName
+            );
+            
+            console.log(`DFA generated: ${dfaFileName}, Total Cost: $${totalCost.toFixed(2)}`);
+            
+            // Upload DFA to week folder
+            const dfaUploadResult = await uploadDfaToSharePoint(
+              clientName,
+              displayProjectName,
+              weekFolder,
+              dfaBuffer,
+              dfaFileName
+            );
+            console.log(`DFA uploaded: ${dfaUploadResult.webUrl}`);
+            
+            // Generate and upload aggregate report to project folder
+            const projectReports = await DailyReportRepository.findByClientProject(clientName, displayProjectName);
+            if (projectReports.length > 0) {
+              console.log(`Generating aggregate report for ${projectReports.length} DFAs...`);
+              const { buffer: aggBuffer, fileName: aggFileName } = await generateAggregateReport(
+                clientName,
+                displayProjectName,
+                projectReports
+              );
+              
+              await uploadAggregateToSharePoint(
+                clientName,
+                displayProjectName,
+                aggBuffer,
+                aggFileName
+              );
+              console.log('Aggregate report uploaded');
+            }
+          } catch (dfaError) {
+            console.error('Error generating/uploading DFA:', dfaError);
+            console.error('DFA Error details:', dfaError instanceof Error ? dfaError.message : String(dfaError));
+          }
+        });
+      }
     } catch (error) {
       console.error('Error submitting report:', error);
       if (error instanceof Error) {
