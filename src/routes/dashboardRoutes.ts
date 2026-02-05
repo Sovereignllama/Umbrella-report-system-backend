@@ -13,6 +13,29 @@ import { getWeekRangeForDate } from '../utils/weekUtils';
 
 const router = Router();
 
+interface ResolvedProject {
+  projectId: string;
+  projectName: string;
+}
+
+function resolveProject(
+  report: { projectId: string; clientName?: string; projectName?: string; id: string },
+  dbProject: { name: string } | null
+): ResolvedProject {
+  if (report.projectId) {
+    return {
+      projectId: report.projectId,
+      projectName: dbProject?.name || report.projectName || 'Unknown Project',
+    };
+  }
+  return {
+    projectId: report.clientName && report.projectName
+      ? `${report.clientName}::${report.projectName}`
+      : report.id,
+    projectName: report.projectName || 'Unknown Project',
+  };
+}
+
 interface DailyAggregation {
   date: string;
   projectId: string;
@@ -70,8 +93,11 @@ router.get(
       const dailyData: DailyAggregation[] = [];
 
       for (const report of reports) {
-        const project = await ProjectRepository.findById(report.projectId);
-        if (!project) continue;
+        const dbProject = report.projectId
+          ? await ProjectRepository.findById(report.projectId)
+          : null;
+        const { projectId: resolvedProjectId, projectName: resolvedProjectName } =
+          resolveProject(report, dbProject);
 
         const laborLines = await ReportLaborLineRepository.findByReportId(report.id);
         const equipmentLines = await ReportEquipmentLineRepository.findByReportId(
@@ -108,7 +134,7 @@ router.get(
 
         // Find existing project entry or create new
         const existingIndex = dailyData.findIndex(
-          (d) => d.projectId === report.projectId
+          (d) => d.projectId === resolvedProjectId
         );
 
         if (existingIndex >= 0) {
@@ -121,8 +147,8 @@ router.get(
         } else {
           dailyData.push({
             date: reportDate.toISOString().split('T')[0],
-            projectId: report.projectId,
-            projectName: project.name,
+            projectId: resolvedProjectId,
+            projectName: resolvedProjectName,
             totalRegularHours,
             totalOTHours,
             totalDTHours,
@@ -172,11 +198,14 @@ router.get(
       const weeklyMap = new Map<string, WeeklyAggregation>();
 
       for (const report of reports) {
-        const project = await ProjectRepository.findById(report.projectId);
-        if (!project) continue;
+        const dbProject = report.projectId
+          ? await ProjectRepository.findById(report.projectId)
+          : null;
+        const { projectId: resolvedProjectId, projectName: resolvedProjectName } =
+          resolveProject(report, dbProject);
 
         const weekRange = getWeekRangeForDate(report.reportDate);
-        const key = `${report.projectId}-${weekRange.weekNumber}`;
+        const key = `${resolvedProjectId}-${weekRange.weekNumber}`;
 
         const laborLines = await ReportLaborLineRepository.findByReportId(report.id);
         const equipmentLines = await ReportEquipmentLineRepository.findByReportId(
@@ -222,8 +251,8 @@ router.get(
             weekStart: weekRange.startDate.toISOString().split('T')[0],
             weekEnd: weekRange.endDate.toISOString().split('T')[0],
             weekLabel: weekRange.folderName,
-            projectId: report.projectId,
-            projectName: project.name,
+            projectId: resolvedProjectId,
+            projectName: resolvedProjectName,
             totalRegularHours: regularHours,
             totalOTHours: otHours,
             totalDTHours: dtHours,
