@@ -116,20 +116,29 @@ router.get(
           const skillForRates = line.skillName || emp?.skillLevel || 'Regular';
           const rates = await ChargeOutRateRepository.findBySkillLevel(skillForRates);
 
-          totalRegularHours += line.regularHours;
-          totalOTHours += line.otHours;
-          totalDTHours += line.dtHours;
+          // Convert to numbers to handle PostgreSQL DECIMAL string values
+          const regHrs = Number(line.regularHours) || 0;
+          const overtimeHrs = Number(line.otHours) || 0;
+          const doubleTimeHrs = Number(line.dtHours) || 0;
+          
+          totalRegularHours += regHrs;
+          totalOTHours += overtimeHrs;
+          totalDTHours += doubleTimeHrs;
+
+          const regularRateValue = Number(rates?.regularRate) || 0;
+          const otRateValue = Number(rates?.otRate) || 0;
+          const dtRateValue = Number(rates?.dtRate) || 0;
 
           totalLaborCost +=
-            line.regularHours * (rates?.regularRate || 0) +
-            line.otHours * (rates?.otRate || 0) +
-            line.dtHours * (rates?.dtRate || 0);
+            regHrs * regularRateValue +
+            overtimeHrs * otRateValue +
+            doubleTimeHrs * dtRateValue;
         }
 
         // Calculate equipment hours
         let equipmentHours = 0;
         for (const line of equipmentLines) {
-          equipmentHours += line.hoursUsed;
+          equipmentHours += Number(line.hoursUsed) || 0;
         }
 
         // Find existing project entry or create new
@@ -223,19 +232,28 @@ router.get(
           const skillForRates = line.skillName || emp?.skillLevel || 'Regular';
           const rates = await ChargeOutRateRepository.findBySkillLevel(skillForRates);
 
-          regularHours += line.regularHours;
-          otHours += line.otHours;
-          dtHours += line.dtHours;
+          // Convert to numbers to handle PostgreSQL DECIMAL string values
+          const regHrs = Number(line.regularHours) || 0;
+          const overtimeHrs = Number(line.otHours) || 0;
+          const doubleTimeHrs = Number(line.dtHours) || 0;
+
+          regularHours += regHrs;
+          otHours += overtimeHrs;
+          dtHours += doubleTimeHrs;
+
+          const regularRateValue = Number(rates?.regularRate) || 0;
+          const otRateValue = Number(rates?.otRate) || 0;
+          const dtRateValue = Number(rates?.dtRate) || 0;
 
           laborCost +=
-            line.regularHours * (rates?.regularRate || 0) +
-            line.otHours * (rates?.otRate || 0) +
-            line.dtHours * (rates?.dtRate || 0);
+            regHrs * regularRateValue +
+            overtimeHrs * otRateValue +
+            doubleTimeHrs * dtRateValue;
         }
 
         let equipmentHours = 0;
         for (const line of equipmentLines) {
-          equipmentHours += line.hoursUsed;
+          equipmentHours += Number(line.hoursUsed) || 0;
         }
 
         if (weeklyMap.has(key)) {
