@@ -1,8 +1,8 @@
 import XlsxPopulate from 'xlsx-populate';
+import ExcelJS from 'exceljs';
 import { DailyReport } from '../types/database';
 import { ReportLaborLineRepository, ReportEquipmentLineRepository, DailyReportRepository } from '../repositories';
 import { readFileByPath, listFilesInFolder, uploadFile, getOrCreateFolder, archiveFile, renameFile } from './sharepointService';
-import * as XLSX from 'xlsx';
 
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 
@@ -41,25 +41,26 @@ async function loadSkillRates(clientName: string): Promise<Map<string, SkillRate
     }
     
     const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const worksheet = workbook.worksheets[0];
     
     let rowIndex = 2;
     while (true) {
-      const nameCell = worksheet[`A${rowIndex}`];
-      if (!nameCell || !nameCell.v) break;
+      const nameCell = worksheet.getCell(`A${rowIndex}`);
+      if (!nameCell.value) break;
       
-      const name = String(nameCell.v).trim();
-      const parseRate = (cell: any): number => {
-        if (!cell || !cell.v) return 0;
-        return parseFloat(String(cell.v).replace(/[$,]/g, '')) || 0;
+      const name = String(nameCell.value).trim();
+      const parseRate = (cell: ExcelJS.Cell): number => {
+        if (!cell || !cell.value) return 0;
+        return parseFloat(String(cell.value).replace(/[$,]/g, '')) || 0;
       };
       
       ratesMap.set(name.toLowerCase(), {
         name,
-        regularRate: parseRate(worksheet[`B${rowIndex}`]),
-        otRate: parseRate(worksheet[`C${rowIndex}`]),
-        dtRate: parseRate(worksheet[`D${rowIndex}`]),
+        regularRate: parseRate(worksheet.getCell(`B${rowIndex}`)),
+        otRate: parseRate(worksheet.getCell(`C${rowIndex}`)),
+        dtRate: parseRate(worksheet.getCell(`D${rowIndex}`)),
       });
       rowIndex++;
     }
@@ -94,25 +95,26 @@ async function loadEquipmentRates(clientName: string): Promise<Map<string, Equip
     }
     
     const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const worksheet = workbook.worksheets[0];
     
     let rowIndex = 2;
     while (true) {
-      const nameCell = worksheet[`A${rowIndex}`];
-      if (!nameCell || !nameCell.v) break;
+      const nameCell = worksheet.getCell(`A${rowIndex}`);
+      if (!nameCell.value) break;
       
-      const name = String(nameCell.v).trim();
-      const parseRate = (cell: any): number => {
-        if (!cell || !cell.v) return 0;
-        return parseFloat(String(cell.v).replace(/[$,]/g, '')) || 0;
+      const name = String(nameCell.value).trim();
+      const parseRate = (cell: ExcelJS.Cell): number => {
+        if (!cell || !cell.value) return 0;
+        return parseFloat(String(cell.value).replace(/[$,]/g, '')) || 0;
       };
       
       ratesMap.set(name.toLowerCase(), {
         name,
-        regularRate: parseRate(worksheet[`B${rowIndex}`]),
-        otRate: parseRate(worksheet[`C${rowIndex}`]),
-        dtRate: parseRate(worksheet[`D${rowIndex}`]),
+        regularRate: parseRate(worksheet.getCell(`B${rowIndex}`)),
+        otRate: parseRate(worksheet.getCell(`C${rowIndex}`)),
+        dtRate: parseRate(worksheet.getCell(`D${rowIndex}`)),
       });
       rowIndex++;
     }

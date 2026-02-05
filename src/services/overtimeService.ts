@@ -65,23 +65,22 @@ export function parseOvertimeRulesFromExcel(workbook: any): OvertimeRules {
   const rules: OvertimeRules = { ...DEFAULT_RULES };
   
   try {
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
+    const worksheet = workbook.worksheets[0];
     
     // Parse daily thresholds from row 4
     // Column A: Regular hours (e.g., 8)
-    const rgCell = worksheet['A4'];
-    if (rgCell && rgCell.v) {
-      const rgValue = parseInt(String(rgCell.v));
+    const rgCell = worksheet.getCell('A4');
+    if (rgCell && rgCell.value) {
+      const rgValue = parseInt(String(rgCell.value));
       if (!isNaN(rgValue)) {
         rules.regularHoursMax = rgValue;
       }
     }
     
     // Column B: OT range (e.g., "8 to 12")
-    const otCell = worksheet['B4'];
-    if (otCell && otCell.v) {
-      const otValue = String(otCell.v);
+    const otCell = worksheet.getCell('B4');
+    if (otCell && otCell.value) {
+      const otValue = String(otCell.value);
       const match = otValue.match(/(\d+)\s*to\s*(\d+)/i);
       if (match) {
         rules.overtimeHoursMax = parseInt(match[2]);
@@ -89,9 +88,9 @@ export function parseOvertimeRulesFromExcel(workbook: any): OvertimeRules {
     }
     
     // Column C: DT threshold (e.g., "After 12")
-    const dtCell = worksheet['C4'];
-    if (dtCell && dtCell.v) {
-      const dtValue = String(dtCell.v);
+    const dtCell = worksheet.getCell('C4');
+    if (dtCell && dtCell.value) {
+      const dtValue = String(dtCell.value);
       const match = dtValue.match(/After\s*(\d+)/i);
       if (match) {
         rules.overtimeHoursMax = parseInt(match[1]);
@@ -101,9 +100,9 @@ export function parseOvertimeRulesFromExcel(workbook: any): OvertimeRules {
     // Parse stat holidays from rows 11-21 (column A)
     const statHolidays: string[] = [];
     for (let row = 11; row <= 21; row++) {
-      const cell = worksheet[`A${row}`];
-      if (cell && cell.v) {
-        const holidayName = String(cell.v).trim();
+      const cell = worksheet.getCell(`A${row}`);
+      if (cell && cell.value) {
+        const holidayName = String(cell.value).trim();
         if (holidayName && !holidayName.toLowerCase().includes('stat rules')) {
           statHolidays.push(holidayName);
         }
@@ -116,9 +115,9 @@ export function parseOvertimeRulesFromExcel(workbook: any): OvertimeRules {
     // Parse weekend rules from rows 26-27
     // Looking for "After 40" in column C
     for (let row = 26; row <= 27; row++) {
-      const cell = worksheet[`C${row}`];
-      if (cell && cell.v) {
-        const value = String(cell.v);
+      const cell = worksheet.getCell(`C${row}`);
+      if (cell && cell.value) {
+        const value = String(cell.value);
         const match = value.match(/After\s*(\d+)/i);
         if (match) {
           rules.weekendOvertimeAfterWeeklyHours = parseInt(match[1]);
@@ -155,13 +154,14 @@ export async function getClientRules(
   
   // Try to load from SharePoint
   try {
-    const XLSX = await import('xlsx');
+    const ExcelJS = await import('exceljs');
     const path = `Umbrella Report Config/${clientName}/ot_rules.xlsx`;
     console.log(`Loading OT rules from: ${path}`);
     
     const buffer = await loadExcelFn(path);
     if (buffer) {
-      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
       const rules = parseOvertimeRulesFromExcel(workbook);
       
       // Cache the rules

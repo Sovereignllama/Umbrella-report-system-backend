@@ -11,7 +11,7 @@ const pool = new Pool(
         connectionString: process.env.DATABASE_URL,
         max: 20,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: 10000,
         ssl: { rejectUnauthorized: false },
       }
     : {
@@ -22,7 +22,7 @@ const pool = new Pool(
         password: process.env.DB_PASSWORD || '',
         max: 20,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: 10000,
         ssl: process.env.DB_HOST?.includes('azure') ? { rejectUnauthorized: false } : false,
       }
 );
@@ -31,14 +31,27 @@ pool.on('error', (err: Error) => {
   console.error('Unexpected error on idle client', err);
 });
 
+pool.on('connect', (client) => {
+  // Set a statement timeout of 30 seconds to prevent long-running queries from hanging
+  client.query('SET statement_timeout = 30000').catch((err: Error) => {
+    console.error('Failed to set statement_timeout on connection:', err);
+  });
+});
+
 // Health check
 export async function testConnection(): Promise<void> {
-  try {
-    const result = await pool.query('SELECT NOW()');
-    console.log('✅ Database connected:', result.rows[0]);
-  } catch (error) {
-    console.error('❌ Database connection failed:', error);
-    throw error;
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await pool.query('SELECT NOW()');
+      console.log('✅ Database connected:', result.rows[0]);
+      return;
+    } catch (error) {
+      console.error(`❌ Database connection attempt ${attempt}/${maxRetries} failed:`, error);
+      if (attempt === maxRetries) throw error;
+      // Exponential backoff: 1s, 2s
+      await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+    }
   }
 }
 
