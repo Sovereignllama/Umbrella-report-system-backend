@@ -7,7 +7,7 @@ import { calculateHoursBreakdown, isStatHoliday, getWeekStart, getWeekEnd, getCl
 import { DailyReportRepository, ReportLaborLineRepository } from '../repositories';
 import { EmployeeSkillsRepository } from '../repositories/EmployeeSkillsRepository';
 import { InactiveEmployeesRepository } from '../repositories/InactiveEmployeesRepository';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 const router = Router();
 
@@ -216,23 +216,22 @@ router.get('/site-employees', authMiddleware, async (_req: AuthRequest, res: Res
     if (excelFile) {
       console.log(`Reading Excel file: ${excelFile.name}`);
       const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
-      const workbook = XLSX.read(buffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+      const worksheet = workbook.worksheets[0];
       
       // Read column A starting from row 2
       const employees: { name: string; id: string }[] = [];
       let rowIndex = 2; // Start from row 2 (A2)
       
       while (true) {
-        const cellAddress = `A${rowIndex}`;
-        const cell = worksheet[cellAddress];
+        const cell = worksheet.getCell(`A${rowIndex}`);
         
-        if (!cell || !cell.v) {
+        if (!cell.value) {
           break; // Stop when we hit an empty cell
         }
         
-        const name = String(cell.v).trim();
+        const name = String(cell.value).trim();
         if (name) {
           employees.push({
             name,
@@ -309,18 +308,18 @@ router.get('/site-employees-all', authMiddleware, async (_req: AuthRequest, res:
     const excelFile = files.find(f => f.name.toLowerCase().includes('site_employees') && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls')));
     if (excelFile) {
       const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
-      const workbook = XLSX.read(buffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+      const worksheet = workbook.worksheets[0];
       
       const employees: { name: string; id: string }[] = [];
       let rowIndex = 2;
       
       while (true) {
-        const cell = worksheet[`A${rowIndex}`];
-        if (!cell || !cell.v) break;
+        const cell = worksheet.getCell(`A${rowIndex}`);
+        if (!cell.value) break;
         
-        const name = String(cell.v).trim();
+        const name = String(cell.value).trim();
         if (name) {
           employees.push({ name, id: String(rowIndex - 1) });
         }
@@ -376,23 +375,22 @@ router.get('/equipment', authMiddleware, async (req: AuthRequest, res: Response)
     if (excelFile) {
       console.log(`Reading equipment Excel file: ${excelFile.name}`);
       const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
-      const workbook = XLSX.read(buffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+      const worksheet = workbook.worksheets[0];
       
       // Read column A starting from row 2 (skip header)
       const equipment: { name: string; id: string }[] = [];
       let rowIndex = 2;
       
       while (true) {
-        const cellAddress = `A${rowIndex}`;
-        const cell = worksheet[cellAddress];
+        const cell = worksheet.getCell(`A${rowIndex}`);
         
-        if (!cell || !cell.v) {
+        if (!cell.value) {
           break;
         }
         
-        const name = String(cell.v).trim();
+        const name = String(cell.value).trim();
         if (name) {
           equipment.push({
             name,
@@ -511,9 +509,9 @@ router.get('/equipment-rates', authMiddleware, async (req: AuthRequest, res: Res
     
     console.log(`Reading equipment rates file: ${excelFile.name}`);
     const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const worksheet = workbook.worksheets[0];
     
     // Read equipment from column A starting from row 2 (row 1 is header)
     // Same structure as skills: Name, Regular Rate, OT Rate, DT Rate
@@ -521,23 +519,23 @@ router.get('/equipment-rates', authMiddleware, async (req: AuthRequest, res: Res
     let rowIndex = 2;
     
     while (true) {
-      const nameCell = worksheet[`A${rowIndex}`];
+      const nameCell = worksheet.getCell(`A${rowIndex}`);
       
-      if (!nameCell || !nameCell.v) {
+      if (!nameCell.value) {
         break; // Stop when we hit an empty cell
       }
       
-      const name = String(nameCell.v).trim();
+      const name = String(nameCell.value).trim();
       if (name) {
         // Parse rates from columns B, C, D
-        const regularCell = worksheet[`B${rowIndex}`];
-        const otCell = worksheet[`C${rowIndex}`];
-        const dtCell = worksheet[`D${rowIndex}`];
+        const regularCell = worksheet.getCell(`B${rowIndex}`);
+        const otCell = worksheet.getCell(`C${rowIndex}`);
+        const dtCell = worksheet.getCell(`D${rowIndex}`);
         
         // Parse currency values (remove $ and convert to number)
-        const parseRate = (cell: any): number => {
-          if (!cell || !cell.v) return 0;
-          const value = String(cell.v).replace(/[$,]/g, '');
+        const parseRate = (cell: ExcelJS.Cell): number => {
+          if (!cell || !cell.value) return 0;
+          const value = String(cell.value).replace(/[$,]/g, '');
           return parseFloat(value) || 0;
         };
         
@@ -592,33 +590,33 @@ router.get('/skills', authMiddleware, async (req: AuthRequest, res: Response): P
     
     console.log(`Reading skills file: ${excelFile.name}`);
     const buffer = await readFileByPath(`${configFolder}/${excelFile.name}`);
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const worksheet = workbook.worksheets[0];
     
     // Read skills from column A starting from row 2 (row 1 is header)
     const skills: { id: string; name: string; regularRate: number; otRate: number; dtRate: number; nightDiff: number }[] = [];
     let rowIndex = 2;
     
     while (true) {
-      const nameCell = worksheet[`A${rowIndex}`];
+      const nameCell = worksheet.getCell(`A${rowIndex}`);
       
-      if (!nameCell || !nameCell.v) {
+      if (!nameCell.value) {
         break; // Stop when we hit an empty cell
       }
       
-      const name = String(nameCell.v).trim();
+      const name = String(nameCell.value).trim();
       if (name) {
         // Parse rates from columns B, C, D, E
-        const regularCell = worksheet[`B${rowIndex}`];
-        const otCell = worksheet[`C${rowIndex}`];
-        const dtCell = worksheet[`D${rowIndex}`];
-        const nightCell = worksheet[`E${rowIndex}`];
+        const regularCell = worksheet.getCell(`B${rowIndex}`);
+        const otCell = worksheet.getCell(`C${rowIndex}`);
+        const dtCell = worksheet.getCell(`D${rowIndex}`);
+        const nightCell = worksheet.getCell(`E${rowIndex}`);
         
         // Parse currency values (remove $ and convert to number)
-        const parseRate = (cell: any): number => {
-          if (!cell || !cell.v) return 0;
-          const value = String(cell.v).replace(/[$,]/g, '');
+        const parseRate = (cell: ExcelJS.Cell): number => {
+          if (!cell || !cell.value) return 0;
+          const value = String(cell.value).replace(/[$,]/g, '');
           return parseFloat(value) || 0;
         };
         
