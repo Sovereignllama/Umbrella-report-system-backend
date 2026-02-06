@@ -17,6 +17,37 @@ let graphClient: AxiosInstance | null = null;
 let accessToken: string | null = null;
 let tokenExpiry: number = 0;
 
+// In-memory cache for SharePoint responses to avoid repeated slow API calls
+interface CacheEntry<T> {
+  data: T;
+  expiry: number;
+}
+
+const sharepointCache = new Map<string, CacheEntry<any>>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCached<T>(key: string): T | null {
+  const entry = sharepointCache.get(key);
+  if (entry && Date.now() < entry.expiry) {
+    return entry.data as T;
+  }
+  if (entry) {
+    sharepointCache.delete(key);
+  }
+  return null;
+}
+
+function setCache<T>(key: string, data: T): void {
+  sharepointCache.set(key, { data, expiry: Date.now() + CACHE_TTL_MS });
+}
+
+/**
+ * Clear the SharePoint cache (e.g., after writes/uploads)
+ */
+export function clearSharePointCache(): void {
+  sharepointCache.clear();
+}
+
 /**
  * Get access token for Graph API (app-only auth)
  */
@@ -119,6 +150,7 @@ export async function createFolder(
       }
     );
 
+    clearSharePointCache();
     return {
       folderId: response.data.id,
       webUrl: response.data.webUrl,
@@ -258,6 +290,7 @@ export async function uploadFile(
       }
     );
 
+    clearSharePointCache();
     return {
       fileId: response.data.id,
       webUrl: response.data.webUrl,
@@ -312,6 +345,7 @@ export async function uploadLargeFile(
 
       if (chunkResponse.status === 201 || chunkResponse.status === 200) {
         const item = chunkResponse.data as SharePointDriveItem;
+        clearSharePointCache();
         return {
           fileId: item.id,
           webUrl: item.webUrl,
@@ -355,6 +389,7 @@ export async function archiveFile(
       `/drives/${SHAREPOINT_DRIVE_ID}/items/${fileId}`,
       patchBody
     );
+    clearSharePointCache();
   } catch (error: any) {
     const status = error.response?.status;
     const errorCode = error.response?.data?.error?.code;
@@ -396,6 +431,7 @@ export async function renameFile(
       `/drives/${SHAREPOINT_DRIVE_ID}/items/${fileId}`,
       { name: newFileName }
     );
+    clearSharePointCache();
   } catch (error) {
     console.error('Failed to rename file:', error);
     throw new Error('Failed to rename file');
@@ -409,6 +445,7 @@ export async function deleteFile(fileId: string): Promise<void> {
   try {
     const client = await getGraphClient();
     await client.delete(`/drives/${SHAREPOINT_DRIVE_ID}/items/${fileId}`);
+    clearSharePointCache();
   } catch (error) {
     console.error('Failed to delete file:', error);
     throw new Error('Failed to delete file');
@@ -488,6 +525,12 @@ export async function getFolderByPath(folderPath: string): Promise<SharePointDri
  */
 export async function listFilesInFolder(folderPath: string): Promise<SharePointDriveItem[]> {
   try {
+    const cacheKey = `listFiles:${folderPath}`;
+    const cached = getCached<SharePointDriveItem[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const client = await getGraphClient();
     
     const encodedPath = folderPath.split('/').map(encodeURIComponent).join('/');
@@ -496,6 +539,7 @@ export async function listFilesInFolder(folderPath: string): Promise<SharePointD
       `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}:/children`
     );
     
+    setCache(cacheKey, response.data.value);
     return response.data.value;
   } catch (error: any) {
     if (error.response?.status === 404) {
@@ -512,6 +556,12 @@ export async function listFilesInFolder(folderPath: string): Promise<SharePointD
  */
 export async function readFileByPath(filePath: string): Promise<Buffer> {
   try {
+    const cacheKey = `readFile:${filePath}`;
+    const cached = getCached<Buffer>(cacheKey);
+    if (cached) {
+      return Buffer.from(cached);
+    }
+
     const client = await getGraphClient();
     
     const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
@@ -523,7 +573,9 @@ export async function readFileByPath(filePath: string): Promise<Buffer> {
       }
     );
     
-    return Buffer.from(response.data);
+    const buffer = Buffer.from(response.data);
+    setCache(cacheKey, buffer);
+    return Buffer.from(buffer);
   } catch (error) {
     console.error(`Failed to read file at "${filePath}":`, error);
     throw new Error(`Failed to read file: ${filePath}`);
