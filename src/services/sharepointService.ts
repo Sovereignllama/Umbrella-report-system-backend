@@ -559,7 +559,7 @@ export async function readFileByPath(filePath: string): Promise<Buffer> {
     const cacheKey = `readFile:${filePath}`;
     const cached = getCached<Buffer>(cacheKey);
     if (cached) {
-      return cached;
+      return Buffer.from(cached);
     }
 
     const client = await getGraphClient();
@@ -575,7 +575,7 @@ export async function readFileByPath(filePath: string): Promise<Buffer> {
     
     const buffer = Buffer.from(response.data);
     setCache(cacheKey, buffer);
-    return buffer;
+    return Buffer.from(buffer);
   } catch (error) {
     console.error(`Failed to read file at "${filePath}":`, error);
     throw new Error(`Failed to read file: ${filePath}`);
