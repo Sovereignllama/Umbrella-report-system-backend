@@ -2,8 +2,113 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../types/auth';
 import { authMiddleware, requireSupervisorOrBoss } from '../middleware';
 import { TimeEntryRepository, PayPeriodRepository } from '../repositories';
+import { listFilesInFolder, readFileByPath } from '../services/sharepointService';
+import { getSetting } from './settingsRoutes';
+import ExcelJS from 'exceljs';
 
 const router = Router();
+
+const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
+
+/**
+ * Parse payroll_calender.xlsx from SharePoint.
+ * Layout: Row 2 has the year in a title like "2026 bi-weekly payroll calendar".
+ * Data rows 5-30 have: col B = period number, col C = start date, col D = end date.
+ */
+async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
+  year: number;
+  periodNumber: number;
+  startDate: Date;
+  endDate: Date;
+}>> {
+  const configFolder = await getSetting('employeesPath') || DEFAULT_CONFIG_BASE_PATH;
+  const files = await listFilesInFolder(configFolder);
+
+  // Match both "payroll_calender" (actual filename) and "payroll_calendar" (correct spelling)
+  const payrollFile = files.find(
+    f => (f.name.toLowerCase().includes('payroll_calender') || f.name.toLowerCase().includes('payroll_calendar'))
+      && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))
+  );
+
+  if (!payrollFile) {
+    console.log(`No payroll_calender file found in: ${configFolder}`);
+    return [];
+  }
+
+  console.log(`Reading payroll calendar file: ${payrollFile.name}`);
+  const buffer = await readFileByPath(`${configFolder}/${payrollFile.name}`);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const worksheet = workbook.worksheets[0];
+
+  if (!worksheet) {
+    return [];
+  }
+
+  // Try to extract year from the title row (row 2, merged across columns)
+  let fileYear: number | null = null;
+  const titleRow = worksheet.getRow(2);
+  for (let col = 1; col <= 5; col++) {
+    const cellVal = titleRow.getCell(col).value;
+    if (cellVal) {
+      const match = String(cellVal).match(/(\d{4})/);
+      if (match) {
+        fileYear = parseInt(match[1]);
+        break;
+      }
+    }
+  }
+
+  const periods: Array<{
+    year: number;
+    periodNumber: number;
+    startDate: Date;
+    endDate: Date;
+  }> = [];
+
+  // Data rows 5-30: col B = period number, col C = start date, col D = end date
+  for (let rowNum = 5; rowNum <= 30; rowNum++) {
+    const row = worksheet.getRow(rowNum);
+    const periodVal = row.getCell(2).value; // Column B
+    const startDateVal = row.getCell(3).value; // Column C
+    const endDateVal = row.getCell(4).value; // Column D
+
+    if (!periodVal || !startDateVal || !endDateVal) {
+      continue;
+    }
+
+    const periodNumber = typeof periodVal === 'number'
+      ? periodVal
+      : parseInt(String(periodVal));
+
+    const startDate = startDateVal instanceof Date
+      ? startDateVal
+      : new Date(String(startDateVal));
+
+    const endDate = endDateVal instanceof Date
+      ? endDateVal
+      : new Date(String(endDateVal));
+
+    // Determine year from the file title or from the end date
+    const periodYear = fileYear || endDate.getFullYear();
+
+    if (!isNaN(periodNumber) && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+      periods.push({ year: periodYear, periodNumber, startDate, endDate });
+    }
+  }
+
+  // If periods were found, persist them to the database for future queries
+  if (periods.length > 0) {
+    try {
+      await PayPeriodRepository.bulkCreate(periods);
+      console.log(`Auto-imported ${periods.length} pay periods from SharePoint`);
+    } catch (err) {
+      console.error('Failed to persist pay periods from SharePoint:', err);
+    }
+  }
+
+  return periods.filter(p => p.year === year);
+}
 
 /**
  * GET /api/time/pay-periods
@@ -24,7 +129,21 @@ router.get(
         return;
       }
 
-      const periods = await PayPeriodRepository.findByYear(year);
+      let periods = await PayPeriodRepository.findByYear(year);
+
+      // If no periods in DB, try auto-loading from SharePoint payroll_calender.xlsx
+      if (periods.length === 0) {
+        try {
+          const loaded = await loadPayPeriodsFromSharePoint(year);
+          if (loaded.length > 0) {
+            // Re-fetch from DB to get full records with IDs
+            periods = await PayPeriodRepository.findByYear(year);
+          }
+        } catch (spError) {
+          console.error('Failed to auto-load pay periods from SharePoint:', spError);
+        }
+      }
+
       res.json(periods);
     } catch (error) {
       console.error('Error fetching pay periods:', error);

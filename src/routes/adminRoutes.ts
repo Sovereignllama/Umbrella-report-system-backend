@@ -497,34 +497,84 @@ router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: Aut
       endDate: Date;
     }> = [];
 
-    // Skip header row, process data rows
+    // Skip header rows, process data rows
+    // Support two layouts:
+    // Layout 1 (original): Row 1 = header, Col A = Year, Col B = Period, Col C = Start Date, Col D = End Date
+    // Layout 2 (payroll_calender.xlsx): Row 2 has year in title, data rows 5-30, Col B = Period, Col C = Start Date, Col D = End Date
+    
+    // Detect layout by checking if row 2 has a title with a year
+    let titleYear: number | null = null;
+    const titleRow = sheet.getRow(2);
+    for (let col = 1; col <= 5; col++) {
+      const cellVal = titleRow.getCell(col).value;
+      if (cellVal) {
+        const match = String(cellVal).match(/(\d{4})/);
+        if (match) {
+          titleYear = parseInt(match[1]);
+          break;
+        }
+      }
+    }
+
+    const isPayrollCalendarLayout = titleYear !== null;
+
     sheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return; // Skip header
+      if (isPayrollCalendarLayout) {
+        // Layout 2: skip rows before data (rows 1-4), data starts at row 5
+        if (rowNumber < 5) return;
 
-      const yearVal = row.getCell(1).value;
-      const periodVal = row.getCell(2).value;
-      const startDateVal = row.getCell(3).value;
-      const endDateVal = row.getCell(4).value;
+        const periodVal = row.getCell(2).value; // Column B
+        const startDateVal = row.getCell(3).value; // Column C
+        const endDateVal = row.getCell(4).value; // Column D
 
-      const year = typeof yearVal === 'number' 
-        ? yearVal 
-        : parseInt(String(yearVal));
+        if (!periodVal || !startDateVal || !endDateVal) return;
+
+        const periodNumber = typeof periodVal === 'number'
+          ? periodVal
+          : parseInt(String(periodVal));
+
+        const startDate = startDateVal instanceof Date
+          ? startDateVal
+          : new Date(String(startDateVal));
+
+        const endDate = endDateVal instanceof Date
+          ? endDateVal
+          : new Date(String(endDateVal));
+
+        const year = titleYear || endDate.getFullYear();
+
+        if (!isNaN(year) && !isNaN(periodNumber) && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+          periods.push({ year, periodNumber, startDate, endDate });
+        }
+      } else {
+        // Layout 1: skip header row, Col A = Year, Col B = Period, Col C = Start, Col D = End
+        if (rowNumber === 1) return;
+
+        const yearVal = row.getCell(1).value;
+        const periodVal = row.getCell(2).value;
+        const startDateVal = row.getCell(3).value;
+        const endDateVal = row.getCell(4).value;
+
+        const year = typeof yearVal === 'number' 
+          ? yearVal 
+          : parseInt(String(yearVal));
       
-      const periodNumber = typeof periodVal === 'number'
-        ? periodVal
-        : parseInt(String(periodVal));
+        const periodNumber = typeof periodVal === 'number'
+          ? periodVal
+          : parseInt(String(periodVal));
 
-      // Parse dates (could be Date objects or strings)
-      const startDate = startDateVal instanceof Date 
-        ? startDateVal 
-        : new Date(String(startDateVal));
+        // Parse dates (could be Date objects or strings)
+        const startDate = startDateVal instanceof Date 
+          ? startDateVal 
+          : new Date(String(startDateVal));
       
-      const endDate = endDateVal instanceof Date
-        ? endDateVal
-        : new Date(String(endDateVal));
+        const endDate = endDateVal instanceof Date
+          ? endDateVal
+          : new Date(String(endDateVal));
 
-      if (!isNaN(year) && !isNaN(periodNumber) && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-        periods.push({ year, periodNumber, startDate, endDate });
+        if (!isNaN(year) && !isNaN(periodNumber) && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+          periods.push({ year, periodNumber, startDate, endDate });
+        }
       }
     });
 
