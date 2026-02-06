@@ -1,9 +1,37 @@
 import { Router, Response } from 'express';
 import { AuthRequest } from '../types/auth';
 import { authMiddleware, requireSupervisorOrBoss } from '../middleware';
-import { TimeEntryRepository } from '../repositories';
+import { TimeEntryRepository, PayPeriodRepository } from '../repositories';
 
 const router = Router();
+
+/**
+ * GET /api/time/pay-periods
+ * Get pay periods for the current year (or specified year)
+ * Query params: year (optional, defaults to current year)
+ */
+router.get(
+  '/pay-periods',
+  authMiddleware,
+  requireSupervisorOrBoss,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const yearParam = req.query.year;
+      const year = yearParam ? parseInt(yearParam as string) : new Date().getFullYear();
+
+      if (isNaN(year)) {
+        res.status(400).json({ error: 'Invalid year' });
+        return;
+      }
+
+      const periods = await PayPeriodRepository.findByYear(year);
+      res.json(periods);
+    } catch (error) {
+      console.error('Error fetching pay periods:', error);
+      res.status(500).json({ error: 'Failed to fetch pay periods' });
+    }
+  }
+);
 
 /**
  * POST /api/time/sign-in
