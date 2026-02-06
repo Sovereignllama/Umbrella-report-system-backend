@@ -15,3 +15,4 @@ export {
   TemplateVersionRepository,
 } from './ConfigRepository';
 export { PayPeriodRepository } from './PayPeriodRepository';
+export { TimeEntryRepository } from './TimeEntryRepository';

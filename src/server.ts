@@ -11,6 +11,7 @@ import adminRoutes from './routes/adminRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import configRoutes from './routes/configRoutes';
 import settingsRoutes from './routes/settingsRoutes';
+import timeRoutes from './routes/timeRoutes';
 
 dotenv.config();
 
@@ -39,6 +40,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/time', timeRoutes);
 
 // Error handling
 app.use(notFoundHandler);
@@ -68,6 +70,7 @@ async function startServer() {
       console.log(`📋 Reports routes available at http://localhost:${PORT}/api/reports`);
       console.log(`⚙️  Admin routes available at http://localhost:${PORT}/api/admin`);
       console.log(`📊 Dashboard routes available at http://localhost:${PORT}/api/dashboard`);
+      console.log(`⏱️  Time routes available at http://localhost:${PORT}/api/time`);
       console.log(`☁️  SharePoint integration ready`);
       console.log(`⏰ Payroll scheduler active`);
     });
