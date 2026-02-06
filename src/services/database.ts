@@ -182,14 +182,8 @@ export async function getClient(): Promise<PoolClient> {
 // Convert snake_case to camelCase and handle Date objects
 function toCamelCase(obj: any): any {
   if (obj === null || obj === undefined) return obj;
-  // For Date objects, return just the date part (YYYY-MM-DD) to avoid timezone issues
-  if (obj instanceof Date) {
-    // Format as YYYY-MM-DD to preserve the original date
-    const year = obj.getFullYear();
-    const month = String(obj.getMonth() + 1).padStart(2, '0');
-    const day = String(obj.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
+  // Keep Date objects as-is; Express will serialize them to ISO 8601 strings in JSON responses
+  if (obj instanceof Date) return obj;
   if (Array.isArray(obj)) return obj.map(toCamelCase);
   if (typeof obj !== 'object') return obj;
 
