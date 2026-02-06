@@ -129,3 +129,17 @@ export interface PayPeriod {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface TimeEntry {
+  id: string;
+  employeeId?: string;
+  employeeName: string;
+  projectId?: string;
+  projectName?: string;
+  signInTime: Date;
+  signOutTime?: Date;
+  notes?: string;
+  recordedBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
