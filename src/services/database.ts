@@ -69,6 +69,7 @@ export async function testConnection(): Promise<void> {
 
 // Periodic health check interval
 let healthCheckInterval: NodeJS.Timeout | null = null;
+let healthCheckCount = 0;
 
 /**
  * Start periodic health check to keep connections warm and detect stale connections
@@ -85,8 +86,9 @@ export function startPoolHealthCheck(): void {
   healthCheckInterval = setInterval(async () => {
     try {
       await pool.query('SELECT 1');
+      healthCheckCount++;
       // Only log occasionally to avoid log spam (every 10th check = ~20 minutes)
-      if (Math.random() < 0.1) {
+      if (healthCheckCount % 10 === 0) {
         console.log('✅ Pool health check passed');
       }
     } catch (error) {
@@ -105,6 +107,7 @@ export function stopPoolHealthCheck(): void {
   if (healthCheckInterval) {
     clearInterval(healthCheckInterval);
     healthCheckInterval = null;
+    healthCheckCount = 0;
     console.log('✅ Pool health check stopped');
   }
 }
@@ -273,6 +276,8 @@ function isConnectionError(error: any): boolean {
   );
 }
 
+const MAX_ERROR_MESSAGE_LENGTH = 100;
+
 // Query wrapper
 export async function query<T = any>(
   text: string,
@@ -289,7 +294,7 @@ export async function query<T = any>(
     if (isConnectionError(error)) {
       console.warn('⚠️  Connection error detected, retrying query once...', {
         code: (error as any).code,
-        message: (error as any).message?.substring(0, 100)
+        message: (error as any).message?.substring(0, MAX_ERROR_MESSAGE_LENGTH)
       });
       
       try {
