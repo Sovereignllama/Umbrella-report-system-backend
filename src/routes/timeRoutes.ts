@@ -89,7 +89,7 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
     const startDate = parseDate(startDateVal);
     const endDate = parseDate(endDateVal);
 
-    // Debug logging for row 5
+    // Debug logging for row 5 (first data row) to help diagnose date parsing issues
     if (rowNum === 5) {
       console.log('Row 5 raw values:', { periodVal, startDateVal, endDateVal });
       console.log('Row 5 parsed values:', { periodNumber, startDate, endDate });

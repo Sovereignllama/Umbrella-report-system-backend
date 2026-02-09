@@ -537,7 +537,10 @@ router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: Aut
         const startDate = parseDate(startDateVal);
         const endDate = parseDate(endDateVal);
         
-        if (!startDate || !endDate) return;
+        if (!startDate || !endDate) {
+          console.log(`Row ${rowNumber}: Could not parse dates. start=${JSON.stringify(startDateVal)}, end=${JSON.stringify(endDateVal)}`);
+          return;
+        }
 
         const year = titleYear || endDate.getFullYear();
 

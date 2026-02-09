@@ -4,14 +4,14 @@
  * ExcelJS rich text objects, Excel serial date numbers, formula cells.
  */
 export function parseDate(val: any): Date | null {
+  if (!val) return null;
+  if (val instanceof Date) return val;
+  
   // Excel epoch offset: Excel's date system started on December 30, 1899,
   // while Unix epoch started on January 1, 1970 (difference of 25569 days)
   const EXCEL_EPOCH_OFFSET = 25569;
   // Number of seconds in a day
   const SECONDS_PER_DAY = 86400;
-  
-  if (!val) return null;
-  if (val instanceof Date) return val;
   
   // ExcelJS formula cell: { result: ..., formula: ... }
   if (typeof val === 'object' && val.result !== undefined) {
