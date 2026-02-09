@@ -11,6 +11,51 @@ const router = Router();
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 
 /**
+ * Robust date parsing function that handles multiple formats from ExcelJS cells:
+ * - Native Date objects
+ * - ExcelJS rich text objects: { richText: [{text: '...'}] }
+ * - Date strings with day-of-week prefixes: "Saturday, December 13, 2025"
+ * - Excel serial date numbers
+ * - Formula cells: { result: '...', formula: '...' }
+ * - null/undefined values
+ */
+function parseDate(val: any): Date | null {
+  if (!val) return null;
+  
+  // Already a Date object (Excel native date)
+  if (val instanceof Date) return val;
+  
+  // ExcelJS rich text object
+  if (typeof val === 'object' && val !== null && 'richText' in val) {
+    val = val.richText.map((r: any) => r.text).join('');
+  }
+  
+  // Formula cell - extract result
+  if (typeof val === 'object' && val !== null && 'result' in val) {
+    val = val.result;
+  }
+  
+  // Excel serial date number (dates after Jan 1, 1970 are > 25569)
+  if (typeof val === 'number' && val > 25569) {
+    return new Date((val - 25569) * 86400 * 1000);
+  }
+  
+  const str = String(val).trim();
+  if (!str) return null;
+  
+  // Try standard Date parsing first
+  const direct = new Date(str);
+  if (!isNaN(direct.getTime())) return direct;
+  
+  // Strip day-of-week prefix: "Saturday, December 13, 2025" → "December 13, 2025"
+  const stripped = str.replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s*/i, '');
+  const parsed = new Date(stripped);
+  if (!isNaN(parsed.getTime())) return parsed;
+  
+  return null;
+}
+
+/**
  * Parse payroll_calender.xlsx from SharePoint.
  * Layout: Row 2 has the year in a title like "2026 bi-weekly payroll calendar".
  * Data rows 5-30 have: col B = period number, col C = start date, col D = end date.
@@ -49,11 +94,16 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
   let fileYear: number | null = null;
   const titleRow = worksheet.getRow(2);
   for (let col = 1; col <= 5; col++) {
-    const cellVal = titleRow.getCell(col).value;
+    let cellVal = titleRow.getCell(col).value;
     if (cellVal) {
+      // Handle ExcelJS rich text objects
+      if (typeof cellVal === 'object' && cellVal !== null && 'richText' in cellVal) {
+        cellVal = (cellVal as any).richText.map((r: any) => r.text).join('');
+      }
       const match = String(cellVal).match(/(\d{4})/);
       if (match) {
         fileYear = parseInt(match[1]);
+        console.log(`Extracted year ${fileYear} from title row`);
         break;
       }
     }
@@ -73,6 +123,11 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
     const startDateVal = row.getCell(3).value; // Column C
     const endDateVal = row.getCell(4).value; // Column D
 
+    // Log first data row for debugging
+    if (rowNum === 5) {
+      console.log(`Row ${rowNum} raw values: periodVal=${JSON.stringify(periodVal)}, startDateVal=${JSON.stringify(startDateVal)}, endDateVal=${JSON.stringify(endDateVal)}`);
+    }
+
     if (!periodVal || !startDateVal || !endDateVal) {
       continue;
     }
@@ -81,23 +136,24 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
       ? periodVal
       : parseInt(String(periodVal));
 
-    const startDate = startDateVal instanceof Date
-      ? startDateVal
-      : new Date(String(startDateVal));
+    const startDate = parseDate(startDateVal);
+    const endDate = parseDate(endDateVal);
 
-    const endDate = endDateVal instanceof Date
-      ? endDateVal
-      : new Date(String(endDateVal));
+    if (!startDate || !endDate) {
+      console.log(`Row ${rowNum}: Skipping - could not parse dates. startDateVal=${JSON.stringify(startDateVal)}, endDateVal=${JSON.stringify(endDateVal)}`);
+      continue;
+    }
 
     // Determine year from the file title or from the end date
     const periodYear = fileYear || endDate.getFullYear();
 
-    if (!isNaN(periodNumber) && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+    if (!isNaN(periodNumber)) {
       periods.push({ year: periodYear, periodNumber, startDate, endDate });
     }
   }
 
   // If periods were found, persist them to the database for future queries
+  console.log(`Parsed ${periods.length} pay periods from SharePoint`);
   if (periods.length > 0) {
     try {
       await PayPeriodRepository.bulkCreate(periods);
