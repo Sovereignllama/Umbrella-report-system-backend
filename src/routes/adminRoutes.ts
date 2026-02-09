@@ -15,6 +15,7 @@ import { InactiveEmployeesRepository } from '../repositories/InactiveEmployeesRe
 import { createProjectFolderStructure, getOrCreateFolder } from '../services/sharepointService';
 import { generateAndUploadPayrollReport } from '../services/payrollSharePointService';
 import ExcelJS from 'exceljs';
+import { parseDate } from '../utils/dateParser';
 
 const router = Router();
 
@@ -533,17 +534,17 @@ router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: Aut
           ? periodVal
           : parseInt(String(periodVal));
 
-        const startDate = startDateVal instanceof Date
-          ? startDateVal
-          : new Date(String(startDateVal));
-
-        const endDate = endDateVal instanceof Date
-          ? endDateVal
-          : new Date(String(endDateVal));
+        const startDate = parseDate(startDateVal);
+        const endDate = parseDate(endDateVal);
+        
+        if (!startDate || !endDate) {
+          console.log(`Row ${rowNumber}: Could not parse dates. start=${JSON.stringify(startDateVal)}, end=${JSON.stringify(endDateVal)}`);
+          return;
+        }
 
         const year = titleYear || endDate.getFullYear();
 
-        if (!isNaN(year) && !isNaN(periodNumber) && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+        if (!isNaN(year) && !isNaN(periodNumber)) {
           periods.push({ year, periodNumber, startDate, endDate });
         }
       } else {

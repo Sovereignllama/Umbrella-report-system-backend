@@ -5,6 +5,7 @@ import { TimeEntryRepository, PayPeriodRepository } from '../repositories';
 import { listFilesInFolder, readFileByPath } from '../services/sharepointService';
 import { getSetting } from './settingsRoutes';
 import ExcelJS from 'exceljs';
+import { parseDate } from '../utils/dateParser';
 
 const router = Router();
 
@@ -49,8 +50,12 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
   let fileYear: number | null = null;
   const titleRow = worksheet.getRow(2);
   for (let col = 1; col <= 5; col++) {
-    const cellVal = titleRow.getCell(col).value;
+    let cellVal = titleRow.getCell(col).value;
     if (cellVal) {
+      // Handle ExcelJS rich text objects
+      if (typeof cellVal === 'object' && (cellVal as any).richText) {
+        cellVal = (cellVal as any).richText.map((r: any) => r.text).join('');
+      }
       const match = String(cellVal).match(/(\d{4})/);
       if (match) {
         fileYear = parseInt(match[1]);
@@ -81,21 +86,29 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
       ? periodVal
       : parseInt(String(periodVal));
 
-    const startDate = startDateVal instanceof Date
-      ? startDateVal
-      : new Date(String(startDateVal));
+    const startDate = parseDate(startDateVal);
+    const endDate = parseDate(endDateVal);
 
-    const endDate = endDateVal instanceof Date
-      ? endDateVal
-      : new Date(String(endDateVal));
+    // Debug logging for row 5 (first data row) to help diagnose date parsing issues
+    if (rowNum === 5) {
+      console.log('Row 5 raw values:', { periodVal, startDateVal, endDateVal });
+      console.log('Row 5 parsed values:', { periodNumber, startDate, endDate });
+    }
+
+    if (!startDate || !endDate) {
+      console.log(`Row ${rowNum}: Could not parse dates. start=${JSON.stringify(startDateVal)}, end=${JSON.stringify(endDateVal)}`);
+      continue;
+    }
 
     // Determine year from the file title or from the end date
     const periodYear = fileYear || endDate.getFullYear();
 
-    if (!isNaN(periodNumber) && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+    if (!isNaN(periodNumber)) {
       periods.push({ year: periodYear, periodNumber, startDate, endDate });
     }
   }
+
+  console.log(`Parsed ${periods.length} pay periods from payroll calendar`);
 
   // If periods were found, persist them to the database for future queries
   if (periods.length > 0) {
