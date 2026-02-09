@@ -92,7 +92,10 @@ export function startPoolHealthCheck(): void {
         console.log('✅ Pool health check passed');
       }
     } catch (error) {
-      console.warn('⚠️  Pool health check failed:', error);
+      console.warn('⚠️  Pool health check failed:', {
+        code: (error as any).code,
+        message: (error as any).message
+      });
       // Don't crash the server - pool will recover automatically
     }
   }, HEALTH_CHECK_INTERVAL_MS);
@@ -292,9 +295,14 @@ export async function query<T = any>(
   } catch (error) {
     // Retry once if it's a connection-related error
     if (isConnectionError(error)) {
+      const errorMessage = (error as any).message || '';
+      const truncatedMessage = errorMessage.length > MAX_ERROR_MESSAGE_LENGTH
+        ? errorMessage.substring(0, MAX_ERROR_MESSAGE_LENGTH) + '...'
+        : errorMessage;
+      
       console.warn('⚠️  Connection error detected, retrying query once...', {
         code: (error as any).code,
-        message: (error as any).message?.substring(0, MAX_ERROR_MESSAGE_LENGTH)
+        message: truncatedMessage
       });
       
       try {
