@@ -14,8 +14,12 @@ const SHAREPOINT_DRIVE_ID = process.env.SHAREPOINT_DRIVE_ID;
 
 // Credential for service account (app-only auth)
 let graphClient: AxiosInstance | null = null;
+let graphClientPromise: Promise<AxiosInstance> | null = null;
 let accessToken: string | null = null;
 let tokenExpiry: number = 0;
+
+// Timeout for SharePoint API requests (30 seconds)
+const SHAREPOINT_REQUEST_TIMEOUT_MS = 30000;
 
 // In-memory cache for SharePoint responses to avoid repeated slow API calls
 interface CacheEntry<T> {
@@ -25,6 +29,9 @@ interface CacheEntry<T> {
 
 const sharepointCache = new Map<string, CacheEntry<any>>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// In-flight request deduplication: prevents duplicate concurrent SharePoint API calls
+const inflightRequests = new Map<string, Promise<any>>();
 
 function getCached<T>(key: string): T | null {
   const entry = sharepointCache.get(key);
@@ -81,33 +88,55 @@ async function getAccessToken(): Promise<string> {
 
 /**
  * Get or create Graph API client
+ * Uses a shared promise to prevent race conditions when multiple
+ * concurrent requests try to create the client simultaneously.
  */
 async function getGraphClient(): Promise<AxiosInstance> {
-  if (!graphClient) {
-    const token = await getAccessToken();
-    graphClient = axios.create({
-      baseURL: GRAPH_API_BASE,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    // Add interceptor to refresh token if it expires
-    graphClient.interceptors.response.use(
-      (response) => response,
-      async (error) => {
-        if (error.response?.status === 401) {
-          const token = await getAccessToken();
-          graphClient!.defaults.headers.common.Authorization = `Bearer ${token}`;
-          return graphClient!(error.config);
-        }
-        return Promise.reject(error);
-      }
-    );
+  if (graphClient) {
+    // Ensure token is still valid, refresh if needed
+    if (Date.now() >= tokenExpiry) {
+      await getAccessToken();
+      graphClient.defaults.headers.common.Authorization = `Bearer ${accessToken}`;
+    }
+    return graphClient;
   }
 
-  return graphClient;
+  // Use a shared promise to prevent multiple concurrent initializations
+  if (!graphClientPromise) {
+    graphClientPromise = (async () => {
+      try {
+        const token = await getAccessToken();
+        const client = axios.create({
+          baseURL: GRAPH_API_BASE,
+          timeout: SHAREPOINT_REQUEST_TIMEOUT_MS,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        // Add interceptor to refresh token if it expires
+        client.interceptors.response.use(
+          (response) => response,
+          async (error) => {
+            if (error.response?.status === 401) {
+              const token = await getAccessToken();
+              client.defaults.headers.common.Authorization = `Bearer ${token}`;
+              return client(error.config);
+            }
+            return Promise.reject(error);
+          }
+        );
+
+        graphClient = client;
+        return client;
+      } finally {
+        graphClientPromise = null;
+      }
+    })();
+  }
+
+  return graphClientPromise;
 }
 
 /**
@@ -522,6 +551,7 @@ export async function getFolderByPath(folderPath: string): Promise<SharePointDri
 
 /**
  * List files in a folder by path
+ * Uses in-flight deduplication to prevent duplicate concurrent API calls
  */
 export async function listFilesInFolder(folderPath: string): Promise<SharePointDriveItem[]> {
   try {
@@ -531,16 +561,31 @@ export async function listFilesInFolder(folderPath: string): Promise<SharePointD
       return cached;
     }
 
-    const client = await getGraphClient();
-    
-    const encodedPath = folderPath.split('/').map(encodeURIComponent).join('/');
-    
-    const response = await client.get<{ value: SharePointDriveItem[] }>(
-      `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}:/children`
-    );
-    
-    setCache(cacheKey, response.data.value);
-    return response.data.value;
+    // Deduplicate concurrent in-flight requests for the same folder
+    const inflight = inflightRequests.get(cacheKey);
+    if (inflight) {
+      return inflight;
+    }
+
+    const request = (async () => {
+      try {
+        const client = await getGraphClient();
+        
+        const encodedPath = folderPath.split('/').map(encodeURIComponent).join('/');
+        
+        const response = await client.get<{ value: SharePointDriveItem[] }>(
+          `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}:/children`
+        );
+        
+        setCache(cacheKey, response.data.value);
+        return response.data.value;
+      } finally {
+        inflightRequests.delete(cacheKey);
+      }
+    })();
+
+    inflightRequests.set(cacheKey, request);
+    return request;
   } catch (error: any) {
     if (error.response?.status === 404) {
       console.warn(`Folder not found: ${folderPath}`);
@@ -553,6 +598,7 @@ export async function listFilesInFolder(folderPath: string): Promise<SharePointD
 
 /**
  * Read file content by path
+ * Uses in-flight deduplication to prevent duplicate concurrent API calls
  */
 export async function readFileByPath(filePath: string): Promise<Buffer> {
   try {
@@ -562,20 +608,37 @@ export async function readFileByPath(filePath: string): Promise<Buffer> {
       return Buffer.from(cached);
     }
 
-    const client = await getGraphClient();
-    
-    const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
-    
-    const response = await client.get(
-      `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}:/content`,
-      {
-        responseType: 'arraybuffer',
+    // Deduplicate concurrent in-flight requests for the same file
+    const inflight = inflightRequests.get(cacheKey);
+    if (inflight) {
+      const result = await inflight;
+      return Buffer.from(result);
+    }
+
+    const request = (async () => {
+      try {
+        const client = await getGraphClient();
+        
+        const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+        
+        const response = await client.get(
+          `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}:/content`,
+          {
+            responseType: 'arraybuffer',
+          }
+        );
+        
+        const buffer = Buffer.from(response.data);
+        setCache(cacheKey, buffer);
+        return buffer;
+      } finally {
+        inflightRequests.delete(cacheKey);
       }
-    );
-    
-    const buffer = Buffer.from(response.data);
-    setCache(cacheKey, buffer);
-    return Buffer.from(buffer);
+    })();
+
+    inflightRequests.set(cacheKey, request);
+    const result = await request;
+    return Buffer.from(result);
   } catch (error) {
     console.error(`Failed to read file at "${filePath}":`, error);
     throw new Error(`Failed to read file: ${filePath}`);

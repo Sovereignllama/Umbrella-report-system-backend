@@ -15,11 +15,45 @@ const router = Router();
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const DEFAULT_PROJECTS_BASE_PATH = 'Projects';
 
+// Route-level timeout for SharePoint-dependent endpoints (30 seconds)
+const ROUTE_TIMEOUT_MS = 30000;
+
+/**
+ * Helper to wrap an async route handler with a timeout.
+ * Returns a 504 Gateway Timeout if the handler takes too long,
+ * preventing the frontend from hanging indefinitely.
+ */
+function withTimeout(
+  handler: (req: AuthRequest, res: Response) => Promise<void>,
+  timeoutMs: number = ROUTE_TIMEOUT_MS
+): (req: AuthRequest, res: Response) => Promise<void> {
+  return async (req: AuthRequest, res: Response): Promise<void> => {
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (!res.headersSent) {
+        res.status(504).json({ error: 'Request timed out. The server may be warming up — please try again.' });
+      }
+    }, timeoutMs);
+
+    try {
+      await handler(req, res);
+    } catch (error) {
+      if (!timedOut && !res.headersSent) {
+        console.error('Route handler error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
 /**
  * GET /api/config/clients
  * Get list of clients (folder names under Projects/)
  */
-router.get('/clients', authMiddleware, async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/clients', authMiddleware, withTimeout(async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const clientsPath = await getSetting('clientsPath') || DEFAULT_PROJECTS_BASE_PATH;
     const folders = await listFilesInFolder(clientsPath);
@@ -35,9 +69,11 @@ router.get('/clients', authMiddleware, async (_req: AuthRequest, res: Response):
     res.json(clients);
   } catch (error) {
     console.error('Error fetching clients:', error);
-    res.status(500).json({ error: 'Failed to fetch clients from SharePoint' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch clients from SharePoint' });
+    }
   }
-});
+}));
 
 /**
  * GET /api/config/clients/:clientName/projects
@@ -183,7 +219,7 @@ router.get('/current-week', authMiddleware, async (_req: AuthRequest, res: Respo
  * Filters out inactive employees from the list
  * Reads from configurable path (default: Umbrella Report Config/site_employees.xlsx)
  */
-router.get('/site-employees', authMiddleware, async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/site-employees', authMiddleware, withTimeout(async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Get config folder path - employees are GLOBAL (not client-specific)
     const configFolder = await getSetting('employeesPath') || DEFAULT_CONFIG_BASE_PATH;
@@ -291,9 +327,11 @@ router.get('/site-employees', authMiddleware, async (_req: AuthRequest, res: Res
     res.json([]);
   } catch (error) {
     console.error('Error fetching site employees:', error);
-    res.status(500).json({ error: 'Failed to fetch site employees from SharePoint' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch site employees from SharePoint' });
+    }
   }
-});
+}));
 
 /**
  * GET /api/config/site-employees-all
