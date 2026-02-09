@@ -4,8 +4,8 @@
  * ExcelJS rich text objects, Excel serial date numbers, formula cells.
  */
 export function parseDate(val: any): Date | null {
-  // Excel epoch offset: Excel's date system starts on December 30, 1899,
-  // while Unix epoch starts on January 1, 1970 (difference of 25569 days)
+  // Excel epoch offset: Excel's date system started on December 30, 1899,
+  // while Unix epoch started on January 1, 1970 (difference of 25569 days)
   const EXCEL_EPOCH_OFFSET = 25569;
   // Number of seconds in a day
   const SECONDS_PER_DAY = 86400;
