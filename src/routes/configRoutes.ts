@@ -15,8 +15,8 @@ const router = Router();
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const DEFAULT_PROJECTS_BASE_PATH = 'Projects';
 
-// Route-level timeout for SharePoint-dependent endpoints (30 seconds)
-const ROUTE_TIMEOUT_MS = 30000;
+// Route-level timeout for SharePoint-dependent endpoints (60 seconds)
+const ROUTE_TIMEOUT_MS = 60000;
 
 /**
  * Helper to wrap an async route handler with a timeout.

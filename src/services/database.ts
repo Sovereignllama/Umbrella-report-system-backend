@@ -10,7 +10,8 @@ const pool = new Pool(
     ? {
         connectionString: process.env.DATABASE_URL,
         max: 20,
-        idleTimeoutMillis: 30000,
+        min: 2,
+        idleTimeoutMillis: 300000,
         connectionTimeoutMillis: 10000,
         ssl: { rejectUnauthorized: false },
       }
@@ -21,7 +22,8 @@ const pool = new Pool(
         user: process.env.DB_USER || 'postgres',
         password: process.env.DB_PASSWORD || '',
         max: 20,
-        idleTimeoutMillis: 30000,
+        min: 2,
+        idleTimeoutMillis: 300000,
         connectionTimeoutMillis: 10000,
         ssl: process.env.DB_HOST?.includes('azure') ? { rejectUnauthorized: false } : false,
       }
