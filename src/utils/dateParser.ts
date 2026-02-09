@@ -4,6 +4,12 @@
  * ExcelJS rich text objects, Excel serial date numbers, formula cells.
  */
 export function parseDate(val: any): Date | null {
+  // Excel epoch offset: Excel's date system starts on December 30, 1899,
+  // while Unix epoch starts on January 1, 1970 (difference of 25569 days)
+  const EXCEL_EPOCH_OFFSET = 25569;
+  // Number of seconds in a day
+  const SECONDS_PER_DAY = 86400;
+  
   if (!val) return null;
   if (val instanceof Date) return val;
   
@@ -18,8 +24,8 @@ export function parseDate(val: any): Date | null {
   }
   
   // Excel serial date number (e.g., 45639 = some date)
-  if (typeof val === 'number' && val > 25569) {
-    return new Date((val - 25569) * 86400 * 1000);
+  if (typeof val === 'number' && val > EXCEL_EPOCH_OFFSET) {
+    return new Date((val - EXCEL_EPOCH_OFFSET) * SECONDS_PER_DAY * 1000);
   }
   
   const str = String(val).trim();
