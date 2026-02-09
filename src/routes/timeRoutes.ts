@@ -72,13 +72,32 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
   }> = [];
 
   // Data rows 5-30: col B = period number, col C = start date, col D = end date
+  let emptyRowCount = 0;
   for (let rowNum = 5; rowNum <= 30; rowNum++) {
     const row = worksheet.getRow(rowNum);
     const periodVal = row.getCell(2).value; // Column B
     const startDateVal = row.getCell(3).value; // Column C
     const endDateVal = row.getCell(4).value; // Column D
 
+    // Debug logging for first few rows to help diagnose parsing issues
+    if (rowNum <= 7) {
+      console.log(`Row ${rowNum} raw values:`, { periodVal, startDateVal, endDateVal });
+    }
+
+    // Stop if we hit 3 consecutive empty rows (end of data)
+    if (!periodVal && !startDateVal && !endDateVal) {
+      emptyRowCount++;
+      if (emptyRowCount >= 3) {
+        console.log(`Stopping at row ${rowNum}: 3 consecutive empty rows`);
+        break;
+      }
+      continue;
+    }
+    emptyRowCount = 0;
+
+    // Skip rows with incomplete data
     if (!periodVal || !startDateVal || !endDateVal) {
+      console.log(`Row ${rowNum}: Skipping incomplete row (missing period, start, or end)`);
       continue;
     }
 
@@ -88,12 +107,6 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
 
     const startDate = parseDate(startDateVal);
     const endDate = parseDate(endDateVal);
-
-    // Debug logging for row 5 (first data row) to help diagnose date parsing issues
-    if (rowNum === 5) {
-      console.log('Row 5 raw values:', { periodVal, startDateVal, endDateVal });
-      console.log('Row 5 parsed values:', { periodNumber, startDate, endDate });
-    }
 
     if (!startDate || !endDate) {
       console.log(`Row ${rowNum}: Could not parse dates. start=${JSON.stringify(startDateVal)}, end=${JSON.stringify(endDateVal)}`);
@@ -105,6 +118,9 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
 
     if (!isNaN(periodNumber)) {
       periods.push({ year: periodYear, periodNumber, startDate, endDate });
+      console.log(`Row ${rowNum}: Successfully parsed period ${periodNumber} (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]})`);
+    } else {
+      console.log(`Row ${rowNum}: Invalid period number: ${periodVal}`);
     }
   }
 
@@ -243,6 +259,88 @@ router.post(
     } catch (error) {
       console.error('Error recording sign-out:', error);
       res.status(500).json({ error: 'Failed to record sign-out' });
+    }
+  }
+);
+
+/**
+ * GET /api/time/employees
+ * Get list of employees who have time entries in the specified date range
+ * Query params: startDate, endDate
+ */
+router.get(
+  '/employees',
+  authMiddleware,
+  requireSupervisorOrBoss,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { startDate, endDate } = req.query;
+
+      if (!startDate || !endDate) {
+        res.status(400).json({ error: 'startDate and endDate are required' });
+        return;
+      }
+
+      // Get all time entries in the date range
+      const entries = await TimeEntryRepository.findByDateRange(
+        new Date(startDate as string),
+        new Date(endDate as string)
+      );
+
+      // Extract unique employees
+      const employeeMap = new Map<string, { name: string; id: string | null }>();
+      for (const entry of entries) {
+        const key = entry.employeeName.toLowerCase();
+        if (!employeeMap.has(key)) {
+          employeeMap.set(key, {
+            name: entry.employeeName,
+            id: entry.employeeId || null,
+          });
+        }
+      }
+
+      // Convert to array and sort by name
+      const employees = Array.from(employeeMap.values()).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+
+      res.json(employees);
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+      res.status(500).json({ error: 'Failed to fetch employees' });
+    }
+  }
+);
+
+/**
+ * GET /api/time/sign-in-out
+ * Get time entries (sign-in/out forms) by date range
+ * Query params: startDate, endDate, employeeId (optional), projectId (optional)
+ */
+router.get(
+  '/sign-in-out',
+  authMiddleware,
+  requireSupervisorOrBoss,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { startDate, endDate, employeeId, projectId } = req.query;
+
+      if (!startDate || !endDate) {
+        res.status(400).json({ error: 'startDate and endDate are required' });
+        return;
+      }
+
+      const entries = await TimeEntryRepository.findByDateRange(
+        new Date(startDate as string),
+        new Date(endDate as string),
+        employeeId as string,
+        projectId as string
+      );
+
+      res.json(entries);
+    } catch (error) {
+      console.error('Error fetching sign-in-out forms:', error);
+      res.status(500).json({ error: 'Failed to fetch sign-in-out forms' });
     }
   }
 );
