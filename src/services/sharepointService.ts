@@ -18,8 +18,8 @@ let graphClientPromise: Promise<AxiosInstance> | null = null;
 let accessToken: string | null = null;
 let tokenExpiry: number = 0;
 
-// Timeout for SharePoint API requests (30 seconds)
-const SHAREPOINT_REQUEST_TIMEOUT_MS = 30000;
+// Timeout for SharePoint API requests (45 seconds)
+const SHAREPOINT_REQUEST_TIMEOUT_MS = 45000;
 
 // In-memory cache for SharePoint responses to avoid repeated slow API calls
 interface CacheEntry<T> {
