@@ -290,6 +290,7 @@ router.get(
       // Extract unique employees
       const employeeMap = new Map<string, { name: string; id: string | null }>();
       for (const entry of entries) {
+        if (!entry.employeeName) continue; // Skip entries without employee names
         const key = entry.employeeName.toLowerCase();
         if (!employeeMap.has(key)) {
           employeeMap.set(key, {
@@ -333,8 +334,8 @@ router.get(
       const entries = await TimeEntryRepository.findByDateRange(
         new Date(startDate as string),
         new Date(endDate as string),
-        employeeId as string,
-        projectId as string
+        employeeId ? String(employeeId) : undefined,
+        projectId ? String(projectId) : undefined
       );
 
       res.json(entries);
@@ -366,8 +367,8 @@ router.get(
       const entries = await TimeEntryRepository.findByDateRange(
         new Date(startDate as string),
         new Date(endDate as string),
-        employeeId as string,
-        projectId as string
+        employeeId ? String(employeeId) : undefined,
+        projectId ? String(projectId) : undefined
       );
 
       res.json(entries);
