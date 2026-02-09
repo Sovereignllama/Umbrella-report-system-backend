@@ -10,9 +10,11 @@ const pool = new Pool(
     ? {
         connectionString: process.env.DATABASE_URL,
         max: 20,
-        min: 2,
+        min: 0, // Don't hold idle connections - prevents stale connections
         idleTimeoutMillis: 300000,
         connectionTimeoutMillis: 10000,
+        keepAlive: true, // Enable TCP keep-alive
+        keepAliveInitialDelayMillis: 10000, // Start keep-alive after 10s
         ssl: { rejectUnauthorized: false },
       }
     : {
@@ -22,15 +24,23 @@ const pool = new Pool(
         user: process.env.DB_USER || 'postgres',
         password: process.env.DB_PASSWORD || '',
         max: 20,
-        min: 2,
+        min: 0, // Don't hold idle connections - prevents stale connections
         idleTimeoutMillis: 300000,
         connectionTimeoutMillis: 10000,
+        keepAlive: true, // Enable TCP keep-alive
+        keepAliveInitialDelayMillis: 10000, // Start keep-alive after 10s
         ssl: process.env.DB_HOST?.includes('azure') ? { rejectUnauthorized: false } : false,
       }
 );
 
 pool.on('error', (err: Error) => {
-  console.error('Unexpected error on idle client', err);
+  console.error('Unexpected error on idle client:', err.message);
+  console.error('Error details:', {
+    name: err.name,
+    message: err.message,
+    stack: err.stack?.split('\n')[0]
+  });
+  // Pool will automatically handle reconnection and remove failed clients
 });
 
 pool.on('connect', (client) => {
@@ -54,6 +64,54 @@ export async function testConnection(): Promise<void> {
       // Exponential backoff: 1s, 2s
       await new Promise(resolve => setTimeout(resolve, attempt * 1000));
     }
+  }
+}
+
+// Periodic health check interval
+let healthCheckInterval: NodeJS.Timeout | null = null;
+let healthCheckCount = 0;
+
+/**
+ * Start periodic health check to keep connections warm and detect stale connections
+ * Runs every 2 minutes to prevent idle connections from going stale
+ */
+export function startPoolHealthCheck(): void {
+  if (healthCheckInterval) {
+    console.log('⚠️  Pool health check already running');
+    return;
+  }
+
+  const HEALTH_CHECK_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+
+  healthCheckInterval = setInterval(async () => {
+    try {
+      await pool.query('SELECT 1');
+      healthCheckCount++;
+      // Only log occasionally to avoid log spam (every 10th check = ~20 minutes)
+      if (healthCheckCount % 10 === 0) {
+        console.log('✅ Pool health check passed');
+      }
+    } catch (error) {
+      console.warn('⚠️  Pool health check failed:', {
+        code: (error as any).code,
+        message: (error as any).message
+      });
+      // Don't crash the server - pool will recover automatically
+    }
+  }, HEALTH_CHECK_INTERVAL_MS);
+
+  console.log('✅ Pool health check started (interval: 2 minutes)');
+}
+
+/**
+ * Stop periodic health check (useful for graceful shutdown)
+ */
+export function stopPoolHealthCheck(): void {
+  if (healthCheckInterval) {
+    clearInterval(healthCheckInterval);
+    healthCheckInterval = null;
+    healthCheckCount = 0;
+    console.log('✅ Pool health check stopped');
   }
 }
 
@@ -199,16 +257,68 @@ function toCamelCase(obj: any): any {
   return result;
 }
 
+// Helper to check if an error is connection-related
+function isConnectionError(error: any): boolean {
+  if (!error) return false;
+  
+  const errorMessage = error.message?.toLowerCase() || '';
+  const errorCode = error.code?.toLowerCase() || '';
+  
+  return (
+    errorCode === 'econnreset' ||
+    errorCode === 'etimedout' ||
+    errorCode === 'epipe' ||
+    errorCode === 'enotfound' ||
+    errorCode === 'econnrefused' ||
+    errorMessage.includes('connection terminated') ||
+    errorMessage.includes('connection error') ||
+    errorMessage.includes('client has encountered a connection error') ||
+    errorMessage.includes('connection closed') ||
+    errorMessage.includes('socket hang up') ||
+    errorMessage.includes('network error')
+  );
+}
+
+const MAX_ERROR_MESSAGE_LENGTH = 100;
+
 // Query wrapper
 export async function query<T = any>(
   text: string,
   params?: any[]
 ): Promise<{ rows: T[]; rowCount: number }> {
-  const result = await pool.query(text, params);
-  return {
-    rows: result.rows.map(toCamelCase) as T[],
-    rowCount: result.rowCount || 0,
-  };
+  try {
+    const result = await pool.query(text, params);
+    return {
+      rows: result.rows.map(toCamelCase) as T[],
+      rowCount: result.rowCount || 0,
+    };
+  } catch (error) {
+    // Retry once if it's a connection-related error
+    if (isConnectionError(error)) {
+      const errorMessage = (error as any).message || '';
+      const truncatedMessage = errorMessage.length > MAX_ERROR_MESSAGE_LENGTH
+        ? errorMessage.substring(0, MAX_ERROR_MESSAGE_LENGTH) + '...'
+        : errorMessage;
+      
+      console.warn('⚠️  Connection error detected, retrying query once...', {
+        code: (error as any).code,
+        message: truncatedMessage
+      });
+      
+      try {
+        const result = await pool.query(text, params);
+        return {
+          rows: result.rows.map(toCamelCase) as T[],
+          rowCount: result.rowCount || 0,
+        };
+      } catch (retryError) {
+        console.error('❌ Query retry failed:', retryError);
+        throw retryError;
+      }
+    }
+    
+    throw error;
+  }
 }
 
 // Transaction wrapper

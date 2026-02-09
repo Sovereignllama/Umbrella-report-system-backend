@@ -17,9 +17,13 @@ let graphClient: AxiosInstance | null = null;
 let graphClientPromise: Promise<AxiosInstance> | null = null;
 let accessToken: string | null = null;
 let tokenExpiry: number = 0;
+let graphClientLastUsed: number = 0; // Track last usage time
 
 // Timeout for SharePoint API requests (45 seconds)
 const SHAREPOINT_REQUEST_TIMEOUT_MS = 45000;
+
+// Maximum idle time before resetting the client (10 minutes)
+const MAX_CLIENT_IDLE_MS = 10 * 60 * 1000;
 
 // In-memory cache for SharePoint responses to avoid repeated slow API calls
 interface CacheEntry<T> {
@@ -90,14 +94,28 @@ async function getAccessToken(): Promise<string> {
  * Get or create Graph API client
  * Uses a shared promise to prevent race conditions when multiple
  * concurrent requests try to create the client simultaneously.
+ * Resets the client if it has been idle for too long to prevent stale TCP connections.
  */
 async function getGraphClient(): Promise<AxiosInstance> {
+  const now = Date.now();
+  
+  // Check if client exists and has been idle for too long
+  if (graphClient && graphClientLastUsed > 0) {
+    const idleTimeMs = now - graphClientLastUsed;
+    if (idleTimeMs > MAX_CLIENT_IDLE_MS) {
+      console.log(`♻️  Resetting SharePoint client after ${Math.round(idleTimeMs / 1000 / 60)} minutes of inactivity`);
+      graphClient = null;
+      graphClientPromise = null;
+    }
+  }
+  
   if (graphClient) {
     // Ensure token is still valid, refresh if needed
-    if (Date.now() >= tokenExpiry) {
+    if (now >= tokenExpiry) {
       await getAccessToken();
       graphClient.defaults.headers.common.Authorization = `Bearer ${accessToken}`;
     }
+    graphClientLastUsed = now;
     return graphClient;
   }
 
@@ -129,6 +147,7 @@ async function getGraphClient(): Promise<AxiosInstance> {
         );
 
         graphClient = client;
+        graphClientLastUsed = Date.now();
         return client;
       } finally {
         graphClientPromise = null;
