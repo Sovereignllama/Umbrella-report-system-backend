@@ -18,6 +18,47 @@ import ExcelJS from 'exceljs';
 
 const router = Router();
 
+/**
+ * Robustly parse a date value from an ExcelJS cell.
+ * Handles: native Dates, day-name prefixed strings ("Saturday, December 13, 2025"),
+ * ExcelJS rich text objects, Excel serial date numbers, formula cells.
+ */
+function parseDate(val: any): Date | null {
+  if (!val) return null;
+  if (val instanceof Date) return val;
+  
+  // ExcelJS formula cell: { result: ..., formula: ... }
+  if (typeof val === 'object' && val.result !== undefined) {
+    return parseDate(val.result);
+  }
+  
+  // ExcelJS rich text: { richText: [{ text: '...' }] }
+  if (typeof val === 'object' && val.richText) {
+    val = val.richText.map((r: any) => r.text).join('');
+  }
+  
+  // Excel serial date number (e.g., 45639 = some date)
+  if (typeof val === 'number' && val > 25569) {
+    return new Date((val - 25569) * 86400 * 1000);
+  }
+  
+  const str = String(val).trim();
+  if (!str) return null;
+  
+  // Try standard parsing first
+  const direct = new Date(str);
+  if (!isNaN(direct.getTime())) return direct;
+  
+  // Strip day-of-week prefix: "Saturday, December 13, 2025" → "December 13, 2025"
+  const stripped = str.replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s*/i, '');
+  if (stripped !== str) {
+    const parsed = new Date(stripped);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+  
+  return null;
+}
+
 // ============================================
 // CLIENT MANAGEMENT
 // ============================================
@@ -533,17 +574,14 @@ router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: Aut
           ? periodVal
           : parseInt(String(periodVal));
 
-        const startDate = startDateVal instanceof Date
-          ? startDateVal
-          : new Date(String(startDateVal));
-
-        const endDate = endDateVal instanceof Date
-          ? endDateVal
-          : new Date(String(endDateVal));
+        const startDate = parseDate(startDateVal);
+        const endDate = parseDate(endDateVal);
+        
+        if (!startDate || !endDate) return;
 
         const year = titleYear || endDate.getFullYear();
 
-        if (!isNaN(year) && !isNaN(periodNumber) && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+        if (!isNaN(year) && !isNaN(periodNumber) && startDate && endDate) {
           periods.push({ year, periodNumber, startDate, endDate });
         }
       } else {
