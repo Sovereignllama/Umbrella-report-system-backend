@@ -23,6 +23,11 @@ export function parseDate(val: any): Date | null {
     val = val.richText.map((r: any) => r.text).join('');
   }
   
+  // Handle hyperlink objects: { text: '...', hyperlink: '...' }
+  if (typeof val === 'object' && val.text !== undefined) {
+    val = val.text;
+  }
+  
   // Excel serial date number (e.g., 45639 = some date)
   if (typeof val === 'number' && val > EXCEL_EPOCH_OFFSET) {
     return new Date((val - EXCEL_EPOCH_OFFSET) * SECONDS_PER_DAY * 1000);

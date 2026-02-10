@@ -11,6 +11,16 @@ const router = Router();
 
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 
+// Month abbreviations for date formatting
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Format a date as "Mon Day" (e.g., "Dec 13", "Jan 9")
+ */
+function formatMonthDay(date: Date): string {
+  return `${MONTH_ABBR[date.getMonth()]} ${date.getDate()}`;
+}
+
 /**
  * Parse payroll_calender.xlsx from SharePoint.
  * Layout: Row 2 has the year in a title like "2026 bi-weekly payroll calendar".
@@ -72,38 +82,38 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
   }> = [];
 
   // Data rows 5-30: col B = period number, col C = start date, col D = end date
-  let emptyRowCount = 0;
+  // Process all rows 5-30 without early stopping to handle merged cells and edge cases
   for (let rowNum = 5; rowNum <= 30; rowNum++) {
     const row = worksheet.getRow(rowNum);
-    const periodVal = row.getCell(2).value; // Column B
-    const startDateVal = row.getCell(3).value; // Column C
-    const endDateVal = row.getCell(4).value; // Column D
+    let periodVal = row.getCell(2).value; // Column B
+    let startDateVal = row.getCell(3).value; // Column C
+    let endDateVal = row.getCell(4).value; // Column D
 
-    // Debug logging for first few rows to help diagnose parsing issues
-    if (rowNum <= 7) {
-      console.log(`Row ${rowNum} raw values:`, { periodVal, startDateVal, endDateVal });
+    // Handle ExcelJS rich text objects (can occur with merged cells or formatted text)
+    if (periodVal && typeof periodVal === 'object' && (periodVal as any).richText) {
+      periodVal = (periodVal as any).richText.map((r: any) => r.text).join('').trim();
+    }
+    if (startDateVal && typeof startDateVal === 'object' && (startDateVal as any).richText) {
+      startDateVal = (startDateVal as any).richText.map((r: any) => r.text).join('').trim();
+    }
+    if (endDateVal && typeof endDateVal === 'object' && (endDateVal as any).richText) {
+      endDateVal = (endDateVal as any).richText.map((r: any) => r.text).join('').trim();
     }
 
-    // Stop if we hit 3 consecutive empty rows (end of data)
+    // Skip rows with all empty values (but don't break early)
     if (!periodVal && !startDateVal && !endDateVal) {
-      emptyRowCount++;
-      if (emptyRowCount >= 3) {
-        console.log(`Stopping at row ${rowNum}: 3 consecutive empty rows`);
-        break;
-      }
       continue;
     }
-    emptyRowCount = 0;
 
     // Skip rows with incomplete data
     if (!periodVal || !startDateVal || !endDateVal) {
-      console.log(`Row ${rowNum}: Skipping incomplete row (missing period, start, or end)`);
+      console.log(`Row ${rowNum}: Skipping incomplete row (period=${periodVal}, start=${startDateVal ? 'present' : 'missing'}, end=${endDateVal ? 'present' : 'missing'})`);
       continue;
     }
 
     const periodNumber = typeof periodVal === 'number'
       ? periodVal
-      : parseInt(String(periodVal));
+      : parseInt(String(periodVal).trim());
 
     const startDate = parseDate(startDateVal);
     const endDate = parseDate(endDateVal);
@@ -116,7 +126,7 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
     // Determine year from the file title or from the end date
     const periodYear = fileYear || endDate.getFullYear();
 
-    if (!isNaN(periodNumber)) {
+    if (!isNaN(periodNumber) && periodNumber > 0) {
       periods.push({ year: periodYear, periodNumber, startDate, endDate });
       console.log(`Row ${rowNum}: Successfully parsed period ${periodNumber} (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]})`);
     } else {
@@ -173,7 +183,13 @@ router.get(
         }
       }
 
-      res.json(periods);
+      // Add label field to each period (e.g., "PP# 1 Dec 13 - Dec 26")
+      const periodsWithLabels = periods.map(period => ({
+        ...period,
+        label: `PP# ${period.periodNumber} ${formatMonthDay(period.startDate)} - ${formatMonthDay(period.endDate)}`
+      }));
+
+      res.json(periodsWithLabels);
     } catch (error) {
       console.error('Error fetching pay periods:', error);
       res.status(500).json({ error: 'Failed to fetch pay periods' });
