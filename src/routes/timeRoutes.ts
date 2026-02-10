@@ -33,18 +33,37 @@ function formatMonthDay(date: Date | string): string {
   if (typeof date === 'string') {
     // For string dates from PostgreSQL DATE columns (e.g., "2026-01-03"),
     // parse the components directly to avoid timezone issues
-    const [year, month, day] = date.split('-').map(Number);
-    return `${MONTH_ABBR[month - 1]} ${day}`;
+    const parts = date.split('-').map(Number);
+    if (parts.length === 3 && !parts.some(isNaN)) {
+      const month = parts[1];
+      const day = parts[2];
+      return `${MONTH_ABBR[month - 1]} ${day}`;
+    }
+    // Fallback: try parsing as Date if format is unexpected
+    date = new Date(date);
   }
   
-  // For Date objects, format in Vancouver timezone
-  const vancouverDateString = date.toLocaleString('en-US', { 
+  // For Date objects, extract components in Vancouver timezone
+  const parts = date.toLocaleString('en-US', { 
+    timeZone: 'America/Vancouver',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).split('/');
+  
+  // parts is [MM, DD, YYYY]
+  if (parts.length === 3) {
+    const month = parseInt(parts[0]) - 1;
+    const day = parseInt(parts[1]);
+    return `${MONTH_ABBR[month]} ${day}`;
+  }
+  
+  // Fallback: use simpler formatting
+  return date.toLocaleString('en-US', { 
     timeZone: 'America/Vancouver',
     month: 'short',
     day: 'numeric'
-  });
-  
-  return vancouverDateString.replace(',', '');
+  }).replace(',', '');
 }
 
 /**
