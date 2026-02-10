@@ -691,8 +691,8 @@ router.get(
       interface ProjectData {
         projectId: string | null;
         projectName: string | null;
-        startTime: null;
-        endTime: null;
+        startTime: null; // Not stored in report_labor_lines table, always null
+        endTime: null;   // Not stored in report_labor_lines table, always null
         totalHours: number;
       }
 
@@ -818,28 +818,46 @@ router.get(
 
       for (const projectRow of projectResult.rows) {
         // Get employees for this project
-        const employeeResult = await query<{
-          employee_id: string;
-          employee_name: string;
-          total_hours: number;
-        }>(
-          `SELECT 
+        let employeeQuery: string;
+        let employeeParams: (string | null)[];
+
+        if (projectRow.project_id) {
+          employeeQuery = `SELECT 
             e.id as employee_id,
             e.name as employee_name,
             SUM(rll.regular_hours + rll.ot_hours + rll.dt_hours) as total_hours
            FROM report_labor_lines rll
            INNER JOIN daily_reports dr ON rll.report_id = dr.id
            INNER JOIN employees e ON rll.employee_id = e.id
-           WHERE dr.project_id ${projectRow.project_id ? '= $1' : 'IS NULL'}
+           WHERE dr.project_id = $1
              AND dr.report_date >= $2 
              AND dr.report_date <= $3
              AND dr.status = 'submitted'
            GROUP BY e.id, e.name
-           ORDER BY e.name`,
-          projectRow.project_id
-            ? [projectRow.project_id, startDate as string, endDate as string]
-            : [startDate as string, endDate as string]
-        );
+           ORDER BY e.name`;
+          employeeParams = [projectRow.project_id, startDate as string, endDate as string];
+        } else {
+          employeeQuery = `SELECT 
+            e.id as employee_id,
+            e.name as employee_name,
+            SUM(rll.regular_hours + rll.ot_hours + rll.dt_hours) as total_hours
+           FROM report_labor_lines rll
+           INNER JOIN daily_reports dr ON rll.report_id = dr.id
+           INNER JOIN employees e ON rll.employee_id = e.id
+           WHERE dr.project_id IS NULL
+             AND dr.report_date >= $1 
+             AND dr.report_date <= $2
+             AND dr.status = 'submitted'
+           GROUP BY e.id, e.name
+           ORDER BY e.name`;
+          employeeParams = [startDate as string, endDate as string];
+        }
+
+        const employeeResult = await query<{
+          employee_id: string;
+          employee_name: string;
+          total_hours: number;
+        }>(employeeQuery, employeeParams);
 
         const employees = employeeResult.rows.map(emp => {
           employeeSet.add(emp.employee_id);
