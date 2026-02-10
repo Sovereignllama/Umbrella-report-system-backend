@@ -16,6 +16,7 @@ import { createProjectFolderStructure, getOrCreateFolder } from '../services/sha
 import { generateAndUploadPayrollReport } from '../services/payrollSharePointService';
 import ExcelJS from 'exceljs';
 import { parseDate } from '../utils/dateParser';
+import { parseCSV, getCSVCell } from '../utils/csvParser';
 
 const router = Router();
 
@@ -468,28 +469,39 @@ router.get('/pay-periods/:year', authMiddleware, requireAdmin, async (req: AuthR
 
 /**
  * POST /api/admin/pay-periods/import
- * Import pay periods from Excel file (base64 encoded)
- * Expected Excel columns: Year, Period Number, Start Date, End Date
+ * Import pay periods from Excel or CSV file (base64 encoded)
+ * 
+ * Request body:
+ * - fileBase64: Base64-encoded file content (required)
+ * - fileType: Optional file type hint ('csv' or 'excel'). If not provided, 
+ *   file type will be auto-detected from binary signatures:
+ *   - Excel .xlsx files start with 'PK' (ZIP archive)
+ *   - Excel .xls files start with 0xD0CF (OLE2 format)
+ *   - CSV files are plain text
+ * 
+ * Supported formats:
+ * - Excel: Columns Year, Period Number, Start Date, End Date
+ * - CSV: Payroll calendar format with year in row 2, data in rows 5-30
  */
 router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { fileBase64 } = req.body;
+    const { fileBase64, fileType } = req.body;
 
     if (!fileBase64) {
       res.status(400).json({ error: 'No file provided' });
       return;
     }
 
-    // Parse Excel file
+    // Decode the file
     const buffer = Buffer.from(fileBase64, 'base64');
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(buffer);
-
-    const sheet = workbook.worksheets[0];
-    if (!sheet) {
-      res.status(400).json({ error: 'No worksheet found in file' });
-      return;
-    }
+    
+    // Try to detect file type from content or parameter
+    // Excel files have specific binary signatures:
+    // - .xlsx files start with 'PK' (ZIP archive)
+    // - .xls files start with 0xD0 0xCF (OLE2 format)
+    const isExcel = (buffer[0] === 0x50 && buffer[1] === 0x4B) || // PK (xlsx)
+                    (buffer[0] === 0xD0 && buffer[1] === 0xCF);  // 0xD0CF (xls)
+    const isCSV = fileType === 'csv' || !isExcel;
 
     const periods: Array<{
       year: number;
@@ -498,86 +510,148 @@ router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: Aut
       endDate: Date;
     }> = [];
 
-    // Skip header rows, process data rows
-    // Support two layouts:
-    // Layout 1 (original): Row 1 = header, Col A = Year, Col B = Period, Col C = Start Date, Col D = End Date
-    // Layout 2 (payroll_calender.xlsx): Row 2 has year in title, data rows 5-30, Col B = Period, Col C = Start Date, Col D = End Date
-    
-    // Detect layout by checking if row 2 has a title with a year
-    let titleYear: number | null = null;
-    const titleRow = sheet.getRow(2);
-    for (let col = 1; col <= 5; col++) {
-      const cellVal = titleRow.getCell(col).value;
-      if (cellVal) {
-        const match = String(cellVal).match(/(\d{4})/);
+    if (isCSV) {
+      // Parse CSV file
+      const csvText = buffer.toString('utf-8');
+      const rows = parseCSV(csvText);
+
+      // Row 2 (index 1) contains the title with the year in column B (index 1)
+      let titleYear: number | null = null;
+      if (rows.length > 1) {
+        const titleCell = getCSVCell(rows[1], 1); // Column B
+        const match = titleCell.match(/(\d{4})/);
         if (match) {
           titleYear = parseInt(match[1]);
-          break;
+          console.log(`Extracted year from CSV title: ${titleYear}`);
         }
       }
-    }
 
-    const isPayrollCalendarLayout = titleYear !== null;
+      // Data rows 5-30 (indices 4-29): col B (index 1) = period, col C (index 2) = start, col D (index 3) = end
+      for (let rowIdx = 4; rowIdx <= 29 && rowIdx < rows.length; rowIdx++) {
+        const row = rows[rowIdx];
+        const periodVal = getCSVCell(row, 1).trim(); // Column B
+        const startDateVal = getCSVCell(row, 2).trim(); // Column C
+        const endDateVal = getCSVCell(row, 3).trim(); // Column D
 
-    sheet.eachRow((row, rowNumber) => {
-      if (isPayrollCalendarLayout) {
-        // Layout 2: skip rows before data (rows 1-4), data starts at row 5
-        if (rowNumber < 5) return;
+        // Skip rows with all empty values
+        if (!periodVal && !startDateVal && !endDateVal) {
+          continue;
+        }
 
-        const periodVal = row.getCell(2).value; // Column B
-        const startDateVal = row.getCell(3).value; // Column C
-        const endDateVal = row.getCell(4).value; // Column D
+        // Skip rows with incomplete data
+        if (!periodVal || !startDateVal || !endDateVal) {
+          console.log(`CSV row ${rowIdx + 1}: Skipping incomplete row (period=${periodVal}, start=${startDateVal ? 'present' : 'missing'}, end=${endDateVal ? 'present' : 'missing'})`);
+          continue;
+        }
 
-        if (!periodVal || !startDateVal || !endDateVal) return;
-
-        const periodNumber = typeof periodVal === 'number'
-          ? periodVal
-          : parseInt(String(periodVal));
-
+        const periodNumber = parseInt(periodVal);
         const startDate = parseDate(startDateVal);
         const endDate = parseDate(endDateVal);
-        
+
         if (!startDate || !endDate) {
-          console.log(`Row ${rowNumber}: Could not parse dates. start=${JSON.stringify(startDateVal)}, end=${JSON.stringify(endDateVal)}`);
-          return;
+          console.log(`CSV row ${rowIdx + 1}: Could not parse dates. start=${startDateVal}, end=${endDateVal}`);
+          continue;
         }
 
+        // Determine year from the file title or from the end date
         const year = titleYear || endDate.getFullYear();
 
-        if (!isNaN(year) && !isNaN(periodNumber)) {
-          periods.push({ year, periodNumber, startDate, endDate });
-        }
-      } else {
-        // Layout 1: skip header row, Col A = Year, Col B = Period, Col C = Start, Col D = End
-        if (rowNumber === 1) return;
-
-        const yearVal = row.getCell(1).value;
-        const periodVal = row.getCell(2).value;
-        const startDateVal = row.getCell(3).value;
-        const endDateVal = row.getCell(4).value;
-
-        const year = typeof yearVal === 'number' 
-          ? yearVal 
-          : parseInt(String(yearVal));
-      
-        const periodNumber = typeof periodVal === 'number'
-          ? periodVal
-          : parseInt(String(periodVal));
-
-        // Parse dates (could be Date objects or strings)
-        const startDate = startDateVal instanceof Date 
-          ? startDateVal 
-          : new Date(String(startDateVal));
-      
-        const endDate = endDateVal instanceof Date
-          ? endDateVal
-          : new Date(String(endDateVal));
-
-        if (!isNaN(year) && !isNaN(periodNumber) && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+        if (!isNaN(year) && !isNaN(periodNumber) && periodNumber > 0) {
           periods.push({ year, periodNumber, startDate, endDate });
         }
       }
-    });
+    } else {
+      // Parse Excel file
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+
+      const sheet = workbook.worksheets[0];
+      if (!sheet) {
+        res.status(400).json({ error: 'No worksheet found in file' });
+        return;
+      }
+
+      // Skip header rows, process data rows
+      // Support two layouts:
+      // Layout 1 (original): Row 1 = header, Col A = Year, Col B = Period, Col C = Start Date, Col D = End Date
+      // Layout 2 (payroll_calender.xlsx): Row 2 has year in title, data rows 5-30, Col B = Period, Col C = Start Date, Col D = End Date
+      
+      // Detect layout by checking if row 2 has a title with a year
+      let titleYear: number | null = null;
+      const titleRow = sheet.getRow(2);
+      for (let col = 1; col <= 5; col++) {
+        const cellVal = titleRow.getCell(col).value;
+        if (cellVal) {
+          const match = String(cellVal).match(/(\d{4})/);
+          if (match) {
+            titleYear = parseInt(match[1]);
+            break;
+          }
+        }
+      }
+
+      const isPayrollCalendarLayout = titleYear !== null;
+
+      sheet.eachRow((row, rowNumber) => {
+        if (isPayrollCalendarLayout) {
+          // Layout 2: skip rows before data (rows 1-4), data starts at row 5
+          if (rowNumber < 5) return;
+
+          const periodVal = row.getCell(2).value; // Column B
+          const startDateVal = row.getCell(3).value; // Column C
+          const endDateVal = row.getCell(4).value; // Column D
+
+          if (!periodVal || !startDateVal || !endDateVal) return;
+
+          const periodNumber = typeof periodVal === 'number'
+            ? periodVal
+            : parseInt(String(periodVal));
+
+          const startDate = parseDate(startDateVal);
+          const endDate = parseDate(endDateVal);
+          
+          if (!startDate || !endDate) {
+            console.log(`Row ${rowNumber}: Could not parse dates. start=${JSON.stringify(startDateVal)}, end=${JSON.stringify(endDateVal)}`);
+            return;
+          }
+
+          const year = titleYear || endDate.getFullYear();
+
+          if (!isNaN(year) && !isNaN(periodNumber) && periodNumber > 0) {
+            periods.push({ year, periodNumber, startDate, endDate });
+          }
+        } else {
+          // Layout 1: skip header row, Col A = Year, Col B = Period, Col C = Start, Col D = End
+          if (rowNumber === 1) return;
+
+          const yearVal = row.getCell(1).value;
+          const periodVal = row.getCell(2).value;
+          const startDateVal = row.getCell(3).value;
+          const endDateVal = row.getCell(4).value;
+
+          const year = typeof yearVal === 'number' 
+            ? yearVal 
+            : parseInt(String(yearVal));
+        
+          const periodNumber = typeof periodVal === 'number'
+            ? periodVal
+            : parseInt(String(periodVal));
+
+          // Parse dates (could be Date objects or strings)
+          const startDate = startDateVal instanceof Date 
+            ? startDateVal 
+            : new Date(String(startDateVal));
+        
+          const endDate = endDateVal instanceof Date
+            ? endDateVal
+            : new Date(String(endDateVal));
+
+          if (!isNaN(year) && !isNaN(periodNumber) && periodNumber > 0 && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+            periods.push({ year, periodNumber, startDate, endDate });
+          }
+        }
+      });
+    }
 
     if (periods.length === 0) {
       res.status(400).json({ error: 'No valid pay periods found in file' });
