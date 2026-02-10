@@ -15,10 +15,36 @@ const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
- * Format a date as "Mon Day" (e.g., "Dec 13", "Jan 9")
+ * Get the current date/time in Vancouver timezone (America/Vancouver, Pacific Time)
  */
-function formatMonthDay(date: Date): string {
-  return `${MONTH_ABBR[date.getMonth()]} ${date.getDate()}`;
+function getVancouverDate(): Date {
+  // Create a date string in Vancouver timezone
+  const vancouverDateString = new Date().toLocaleString('en-US', { 
+    timeZone: 'America/Vancouver' 
+  });
+  return new Date(vancouverDateString);
+}
+
+/**
+ * Format a date as "Mon Day" (e.g., "Dec 13", "Jan 9").
+ * Accepts both Date objects and date strings (e.g., "2026-01-03" from PostgreSQL).
+ */
+function formatMonthDay(date: Date | string): string {
+  if (typeof date === 'string') {
+    // For string dates from PostgreSQL DATE columns (e.g., "2026-01-03"),
+    // parse the components directly to avoid timezone issues
+    const [year, month, day] = date.split('-').map(Number);
+    return `${MONTH_ABBR[month - 1]} ${day}`;
+  }
+  
+  // For Date objects, format in Vancouver timezone
+  const vancouverDateString = date.toLocaleString('en-US', { 
+    timeZone: 'America/Vancouver',
+    month: 'short',
+    day: 'numeric'
+  });
+  
+  return vancouverDateString.replace(',', '');
 }
 
 /**
@@ -161,7 +187,7 @@ router.get(
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const yearParam = req.query.year;
-      const year = yearParam ? parseInt(yearParam as string) : new Date().getFullYear();
+      const year = yearParam ? parseInt(yearParam as string) : getVancouverDate().getFullYear();
 
       if (isNaN(year)) {
         res.status(400).json({ error: 'Invalid year' });
