@@ -408,7 +408,7 @@ router.get(
       const { query } = await import('../services/database');
       const laborResult = await query<{ id: string; name: string }>(
         `SELECT DISTINCT 
-           COALESCE(e.id, rll.employee_name) as id,
+           COALESCE(e.id::text, rll.employee_name) as id,
            COALESCE(e.name, rll.employee_name) as name
          FROM report_labor_lines rll
          INNER JOIN daily_reports dr ON rll.report_id = dr.id
@@ -861,7 +861,7 @@ router.get(
 
         if (projectRow.project_id) {
           employeeQuery = `SELECT 
-            COALESCE(e.id, rll.employee_name) as employee_id,
+            COALESCE(e.id::text, rll.employee_name) as employee_id,
             COALESCE(e.name, rll.employee_name) as employee_name,
             SUM(rll.regular_hours + rll.ot_hours + rll.dt_hours) as total_hours
            FROM report_labor_lines rll
@@ -872,12 +872,12 @@ router.get(
              AND dr.report_date <= $3
              AND dr.status = 'submitted'
              AND (rll.employee_id IS NOT NULL OR rll.employee_name IS NOT NULL)
-           GROUP BY COALESCE(e.id, rll.employee_name), COALESCE(e.name, rll.employee_name)
+           GROUP BY COALESCE(e.id::text, rll.employee_name), COALESCE(e.name, rll.employee_name)
            ORDER BY COALESCE(e.name, rll.employee_name)`;
           employeeParams = [projectRow.project_id, startDate as string, endDate as string];
         } else {
           employeeQuery = `SELECT 
-            COALESCE(e.id, rll.employee_name) as employee_id,
+            COALESCE(e.id::text, rll.employee_name) as employee_id,
             COALESCE(e.name, rll.employee_name) as employee_name,
             SUM(rll.regular_hours + rll.ot_hours + rll.dt_hours) as total_hours
            FROM report_labor_lines rll
@@ -888,7 +888,7 @@ router.get(
              AND dr.report_date <= $2
              AND dr.status = 'submitted'
              AND (rll.employee_id IS NOT NULL OR rll.employee_name IS NOT NULL)
-           GROUP BY COALESCE(e.id, rll.employee_name), COALESCE(e.name, rll.employee_name)
+           GROUP BY COALESCE(e.id::text, rll.employee_name), COALESCE(e.name, rll.employee_name)
            ORDER BY COALESCE(e.name, rll.employee_name)`;
           employeeParams = [startDate as string, endDate as string];
         }
