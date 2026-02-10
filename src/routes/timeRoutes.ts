@@ -15,10 +15,55 @@ const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
- * Format a date as "Mon Day" (e.g., "Dec 13", "Jan 9")
+ * Get the current date/time in Vancouver timezone (America/Vancouver, Pacific Time)
  */
-function formatMonthDay(date: Date): string {
-  return `${MONTH_ABBR[date.getMonth()]} ${date.getDate()}`;
+function getVancouverDate(): Date {
+  // Create a date string in Vancouver timezone
+  const vancouverDateString = new Date().toLocaleString('en-US', { 
+    timeZone: 'America/Vancouver' 
+  });
+  return new Date(vancouverDateString);
+}
+
+/**
+ * Format a date as "Mon Day" (e.g., "Dec 13", "Jan 9").
+ * Accepts both Date objects and date strings (e.g., "2026-01-03" from PostgreSQL).
+ */
+function formatMonthDay(date: Date | string): string {
+  if (typeof date === 'string') {
+    // For string dates from PostgreSQL DATE columns (e.g., "2026-01-03"),
+    // parse the components directly to avoid timezone issues
+    const parts = date.split('-').map(Number);
+    if (parts.length === 3 && !parts.some(isNaN)) {
+      const month = parts[1];
+      const day = parts[2];
+      return `${MONTH_ABBR[month - 1]} ${day}`;
+    }
+    // Fallback: try parsing as Date if format is unexpected
+    date = new Date(date);
+  }
+  
+  // For Date objects, extract components in Vancouver timezone
+  const parts = date.toLocaleString('en-US', { 
+    timeZone: 'America/Vancouver',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).split('/');
+  
+  // parts is [MM, DD, YYYY]
+  if (parts.length === 3) {
+    const month = parseInt(parts[0]) - 1;
+    const day = parseInt(parts[1]);
+    return `${MONTH_ABBR[month]} ${day}`;
+  }
+  
+  // Fallback: use simpler formatting
+  return date.toLocaleString('en-US', { 
+    timeZone: 'America/Vancouver',
+    month: 'short',
+    day: 'numeric'
+  }).replace(',', '');
 }
 
 /**
@@ -161,7 +206,7 @@ router.get(
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const yearParam = req.query.year;
-      const year = yearParam ? parseInt(yearParam as string) : new Date().getFullYear();
+      const year = yearParam ? parseInt(yearParam as string) : getVancouverDate().getFullYear();
 
       if (isNaN(year)) {
         res.status(400).json({ error: 'Invalid year' });

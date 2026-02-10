@@ -14,10 +14,10 @@ export function startPayrollScheduler(): void {
     await processPendingPayrollReports();
   }, {
     scheduled: true,
-    timezone: 'America/Edmonton' // Alberta timezone
+    timezone: 'America/Vancouver' // Vancouver timezone (Pacific Time)
   });
 
-  console.log('✅ Payroll report scheduler started (runs daily at 6:00 AM MT)');
+  console.log('✅ Payroll report scheduler started (runs daily at 6:00 AM PT)');
 }
 
 /**
