@@ -676,7 +676,7 @@ router.get(
            AND dr.report_date >= $2 
            AND dr.report_date <= $3
            AND dr.status = 'submitted'
-         ORDER BY dr.report_date, rll.start_time, p.name`,
+         ORDER BY dr.report_date, rll.start_time NULLS LAST, p.name`,
         [employeeId as string, startDate as string, endDate as string]
       );
 
@@ -718,6 +718,7 @@ router.get(
         if (existingProject) {
           existingProject.totalHours += totalHours;
           // Update time range if needed (use earliest start, latest end)
+          // PostgreSQL TIME values are returned as 'HH:MM:SS' strings which compare correctly lexicographically
           if (row.start_time && (!existingProject.startTime || row.start_time < existingProject.startTime)) {
             existingProject.startTime = row.start_time;
           }
@@ -743,9 +744,11 @@ router.get(
       );
 
       // Apply lunch deduction per day if enabled
+      // Only deduct lunch if employee worked at least 4 hours (half day minimum)
+      const MIN_HOURS_FOR_LUNCH_DEDUCTION = 4;
       if (shouldDeductLunch) {
         for (const dateData of dates) {
-          if (dateData.dailyTotalHours > 0) {
+          if (dateData.dailyTotalHours >= MIN_HOURS_FOR_LUNCH_DEDUCTION) {
             dateData.dailyTotalHours = Math.max(0, dateData.dailyTotalHours - LUNCH_DEDUCTION_HOURS);
           }
         }
