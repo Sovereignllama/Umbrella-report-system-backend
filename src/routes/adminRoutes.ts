@@ -485,8 +485,12 @@ router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: Aut
     const buffer = Buffer.from(fileBase64, 'base64');
     
     // Try to detect file type from content or parameter
-    // CSV files will be plain text, Excel files will have binary signature
-    const isCSV = fileType === 'csv' || buffer.toString('utf-8', 0, 100).includes(',');
+    // Excel files have specific binary signatures:
+    // - .xlsx files start with 'PK' (ZIP archive)
+    // - .xls files start with 0xD0 0xCF (OLE2 format)
+    const isExcel = (buffer[0] === 0x50 && buffer[1] === 0x4B) || // PK (xlsx)
+                    (buffer[0] === 0xD0 && buffer[1] === 0xCF);  // 0xD0CF (xls)
+    const isCSV = fileType === 'csv' || !isExcel;
 
     const periods: Array<{
       year: number;
@@ -601,7 +605,7 @@ router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: Aut
 
           const year = titleYear || endDate.getFullYear();
 
-          if (!isNaN(year) && !isNaN(periodNumber)) {
+          if (!isNaN(year) && !isNaN(periodNumber) && periodNumber > 0) {
             periods.push({ year, periodNumber, startDate, endDate });
           }
         } else {
@@ -630,7 +634,7 @@ router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: Aut
             ? endDateVal
             : new Date(String(endDateVal));
 
-          if (!isNaN(year) && !isNaN(periodNumber) && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+          if (!isNaN(year) && !isNaN(periodNumber) && periodNumber > 0 && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
             periods.push({ year, periodNumber, startDate, endDate });
           }
         }
