@@ -428,10 +428,13 @@ router.get(
         }
       }
 
-      // Convert to array and sort by name
-      const employees = Array.from(employeeMap.values()).sort((a, b) =>
-        a.name.localeCompare(b.name)
-      );
+      // Convert to array and sort by name, then map to match frontend's EmployeeSummary interface
+      const employees = Array.from(employeeMap.values())
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(emp => ({
+          employeeId: emp.id || emp.name, // Use name as fallback if no UUID
+          employeeName: emp.name,
+        }));
 
       res.json(employees);
     } catch (error) {
@@ -611,7 +614,7 @@ router.get(
 /**
  * GET /api/time/employee-hours
  * Get employee hours report for a specific employee and date range
- * Query params: employeeId (UUID), startDate, endDate
+ * Query params: employeeId (UUID), startDate, endDate, applyLunchDeduction (optional, default: true)
  */
 router.get(
   '/employee-hours',
@@ -619,12 +622,16 @@ router.get(
   requireSupervisorOrBoss,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-      const { employeeId, startDate, endDate } = req.query;
+      const { employeeId, startDate, endDate, applyLunchDeduction } = req.query;
 
       if (!employeeId || !startDate || !endDate) {
         res.status(400).json({ error: 'employeeId, startDate, and endDate are required' });
         return;
       }
+
+      // Parse applyLunchDeduction parameter (default: true)
+      const shouldDeductLunch = applyLunchDeduction !== 'false';
+      const LUNCH_DEDUCTION_HOURS = 0.5;
 
       // Import query function from database service
       const { query } = await import('../services/database');
@@ -650,6 +657,8 @@ router.get(
         regular_hours: number;
         ot_hours: number;
         dt_hours: number;
+        start_time: string | null;
+        end_time: string | null;
       }>(
         `SELECT 
           dr.report_date,
@@ -657,7 +666,9 @@ router.get(
           p.name as project_name,
           rll.regular_hours,
           rll.ot_hours,
-          rll.dt_hours
+          rll.dt_hours,
+          rll.start_time,
+          rll.end_time
          FROM report_labor_lines rll
          INNER JOIN daily_reports dr ON rll.report_id = dr.id
          LEFT JOIN projects p ON dr.project_id = p.id
@@ -665,7 +676,7 @@ router.get(
            AND dr.report_date >= $2 
            AND dr.report_date <= $3
            AND dr.status = 'submitted'
-         ORDER BY dr.report_date, p.name`,
+         ORDER BY dr.report_date, rll.start_time NULLS LAST, p.name`,
         [employeeId as string, startDate as string, endDate as string]
       );
 
@@ -673,8 +684,8 @@ router.get(
       interface ProjectData {
         projectId: string | null;
         projectName: string | null;
-        startTime: null; // Not stored in report_labor_lines table, always null
-        endTime: null;   // Not stored in report_labor_lines table, always null
+        startTime: string | null;
+        endTime: string | null;
         totalHours: number;
       }
 
@@ -706,12 +717,22 @@ router.get(
 
         if (existingProject) {
           existingProject.totalHours += totalHours;
+          // Update time range if needed (use earliest start, latest end)
+          // PostgreSQL TIME values are returned as 'HH:MM:SS' strings which compare correctly lexicographically
+          // Note: This assumes times are within the same calendar day (no midnight crossings)
+          // which is valid since we group by report_date
+          if (row.start_time && (!existingProject.startTime || row.start_time < existingProject.startTime)) {
+            existingProject.startTime = row.start_time;
+          }
+          if (row.end_time && (!existingProject.endTime || row.end_time > existingProject.endTime)) {
+            existingProject.endTime = row.end_time;
+          }
         } else {
           dateData.projects.push({
             projectId: row.project_id,
             projectName: row.project_name,
-            startTime: null,
-            endTime: null,
+            startTime: row.start_time,
+            endTime: row.end_time,
             totalHours,
           });
         }
@@ -723,6 +744,19 @@ router.get(
       const dates = Array.from(dateMap.values()).sort((a, b) =>
         a.date.localeCompare(b.date)
       );
+
+      // Apply lunch deduction per day if enabled
+      // Only deduct lunch if employee worked at least 4 hours (half day minimum)
+      // Note: The deduction is applied to daily totals, not per-project hours
+      // This means project hours show raw work time, while daily totals reflect billable/payable hours
+      const MIN_HOURS_FOR_LUNCH_DEDUCTION = 4;
+      if (shouldDeductLunch) {
+        for (const dateData of dates) {
+          if (dateData.dailyTotalHours >= MIN_HOURS_FOR_LUNCH_DEDUCTION) {
+            dateData.dailyTotalHours = Math.max(0, dateData.dailyTotalHours - LUNCH_DEDUCTION_HOURS);
+          }
+        }
+      }
 
       // Calculate grand total
       const grandTotalHours = dates.reduce(
@@ -737,6 +771,7 @@ router.get(
         periodEnd: endDate,
         dates,
         grandTotalHours: Math.round(grandTotalHours * 100) / 100,
+        lunchDeducted: shouldDeductLunch,
       });
     } catch (error) {
       console.error('Error fetching employee hours:', error);
