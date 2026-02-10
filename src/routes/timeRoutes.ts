@@ -719,6 +719,8 @@ router.get(
           existingProject.totalHours += totalHours;
           // Update time range if needed (use earliest start, latest end)
           // PostgreSQL TIME values are returned as 'HH:MM:SS' strings which compare correctly lexicographically
+          // Note: This assumes times are within the same calendar day (no midnight crossings)
+          // which is valid since we group by report_date
           if (row.start_time && (!existingProject.startTime || row.start_time < existingProject.startTime)) {
             existingProject.startTime = row.start_time;
           }
@@ -745,6 +747,8 @@ router.get(
 
       // Apply lunch deduction per day if enabled
       // Only deduct lunch if employee worked at least 4 hours (half day minimum)
+      // Note: The deduction is applied to daily totals, not per-project hours
+      // This means project hours show raw work time, while daily totals reflect billable/payable hours
       const MIN_HOURS_FOR_LUNCH_DEDUCTION = 4;
       if (shouldDeductLunch) {
         for (const dateData of dates) {
