@@ -717,7 +717,7 @@ router.get(
         }
 
         const dateData = dateMap.get(dateKey)!;
-        const totalHours = (row.regularHours || 0) + (row.otHours || 0) + (row.dtHours || 0);
+        const totalHours = Number(row.regularHours || 0) + Number(row.otHours || 0) + Number(row.dtHours || 0);
 
         // Check if project already exists for this date
         const existingProject = dateData.projects.find(
@@ -892,13 +892,13 @@ router.get(
           return {
             employeeId: emp.employeeId,
             employeeName: emp.employeeName,
-            totalHours: Math.round((emp.totalHours || 0) * 100) / 100,
+            totalHours: Math.round(Number(emp.totalHours || 0) * 100) / 100,
           };
         });
 
-        const regularHours = projectRow.totalRegularHours || 0;
-        const otHours = projectRow.totalOtHours || 0;
-        const dtHours = projectRow.totalDtHours || 0;
+        const regularHours = Number(projectRow.totalRegularHours || 0);
+        const otHours = Number(projectRow.totalOtHours || 0);
+        const dtHours = Number(projectRow.totalDtHours || 0);
         const projectTotalHours = regularHours + otHours + dtHours;
 
         totalRegularHours += regularHours;
