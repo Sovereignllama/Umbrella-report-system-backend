@@ -204,6 +204,16 @@ export async function runMigrations(): Promise<void> {
           CREATE INDEX IF NOT EXISTS idx_time_entries_sign_in_time ON time_entries(sign_in_time);
           CREATE INDEX IF NOT EXISTS idx_time_entries_recorded_by ON time_entries(recorded_by);
         `
+      },
+      {
+        name: '013_add_time_columns_to_labor_lines',
+        sql: `
+          ALTER TABLE report_labor_lines ADD COLUMN IF NOT EXISTS start_time TIME;
+          ALTER TABLE report_labor_lines ADD COLUMN IF NOT EXISTS end_time TIME;
+          CREATE INDEX IF NOT EXISTS idx_labor_lines_times 
+          ON report_labor_lines(start_time, end_time) 
+          WHERE start_time IS NOT NULL AND end_time IS NOT NULL;
+        `
       }
     ];
 
