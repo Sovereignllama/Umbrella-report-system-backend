@@ -11,12 +11,14 @@ const router = Router();
 
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 
+// Month abbreviations for date formatting
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 /**
  * Format a date as "Mon Day" (e.g., "Dec 13", "Jan 9")
  */
 function formatMonthDay(date: Date): string {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${months[date.getMonth()]} ${date.getDate()}`;
+  return `${MONTH_ABBR[date.getMonth()]} ${date.getDate()}`;
 }
 
 /**
@@ -98,22 +100,14 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
       endDateVal = (endDateVal as any).richText.map((r: any) => r.text).join('').trim();
     }
 
-    // Debug logging for all rows to help diagnose parsing issues
-    console.log(`Row ${rowNum} raw values:`, { 
-      periodVal: typeof periodVal === 'object' ? JSON.stringify(periodVal) : periodVal, 
-      startDateVal: typeof startDateVal === 'object' ? JSON.stringify(startDateVal) : startDateVal, 
-      endDateVal: typeof endDateVal === 'object' ? JSON.stringify(endDateVal) : endDateVal 
-    });
-
     // Skip rows with all empty values (but don't break early)
     if (!periodVal && !startDateVal && !endDateVal) {
-      console.log(`Row ${rowNum}: Empty row, continuing to check remaining rows`);
       continue;
     }
 
     // Skip rows with incomplete data
     if (!periodVal || !startDateVal || !endDateVal) {
-      console.log(`Row ${rowNum}: Skipping incomplete row (missing period, start, or end)`);
+      console.log(`Row ${rowNum}: Skipping incomplete row (period=${periodVal}, start=${startDateVal ? 'present' : 'missing'}, end=${endDateVal ? 'present' : 'missing'})`);
       continue;
     }
 
@@ -192,7 +186,7 @@ router.get(
       // Add label field to each period (e.g., "PP# 1 Dec 13 - Dec 26")
       const periodsWithLabels = periods.map(period => ({
         ...period,
-        label: `PP# ${period.periodNumber} ${formatMonthDay(new Date(period.startDate))} - ${formatMonthDay(new Date(period.endDate))}`
+        label: `PP# ${period.periodNumber} ${formatMonthDay(period.startDate)} - ${formatMonthDay(period.endDate)}`
       }));
 
       res.json(periodsWithLabels);
