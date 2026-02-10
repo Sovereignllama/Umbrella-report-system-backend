@@ -639,27 +639,15 @@ router.get(
       // Import query function from database service
       const { query } = await import('../services/database');
 
-      // Determine if employeeId is a UUID or a name
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(employeeId as string);
-      
       // Try to get employee from the employees table (by UUID or name)
+      // Cast UUID to text to allow comparison with string parameters
       let employee: { id: string; name: string } | null = null;
-      if (isUUID) {
-        const employeeResult = await query<{ id: string; name: string }>(
-          'SELECT id, name FROM employees WHERE id = $1',
-          [employeeId as string]
-        );
-        if (employeeResult.rows.length > 0) {
-          employee = employeeResult.rows[0];
-        }
-      } else {
-        const employeeResult = await query<{ id: string; name: string }>(
-          'SELECT id, name FROM employees WHERE name = $1',
-          [employeeId as string]
-        );
-        if (employeeResult.rows.length > 0) {
-          employee = employeeResult.rows[0];
-        }
+      const employeeResult = await query<{ id: string; name: string }>(
+        'SELECT id, name FROM employees WHERE id::text = $1 OR name = $1',
+        [employeeId as string]
+      );
+      if (employeeResult.rows.length > 0) {
+        employee = employeeResult.rows[0];
       }
 
       // If no employee found in employees table, use the identifier as-is (it may only exist in labor lines)
@@ -693,7 +681,7 @@ router.get(
          FROM report_labor_lines rll
          INNER JOIN daily_reports dr ON rll.report_id = dr.id
          LEFT JOIN projects p ON dr.project_id = p.id
-         WHERE (rll.employee_id = $1 OR rll.employee_name = $1)
+         WHERE (rll.employee_id::text = $1 OR rll.employee_name = $1)
            AND dr.report_date >= $2 
            AND dr.report_date <= $3
            AND dr.status = 'submitted'
