@@ -614,7 +614,7 @@ router.get(
 /**
  * GET /api/time/employee-hours
  * Get employee hours report for a specific employee and date range
- * Query params: employeeId (UUID), startDate, endDate
+ * Query params: employeeId (UUID), startDate, endDate, applyLunchDeduction (optional, default: true)
  */
 router.get(
   '/employee-hours',
@@ -622,12 +622,16 @@ router.get(
   requireSupervisorOrBoss,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-      const { employeeId, startDate, endDate } = req.query;
+      const { employeeId, startDate, endDate, applyLunchDeduction } = req.query;
 
       if (!employeeId || !startDate || !endDate) {
         res.status(400).json({ error: 'employeeId, startDate, and endDate are required' });
         return;
       }
+
+      // Parse applyLunchDeduction parameter (default: true)
+      const shouldDeductLunch = applyLunchDeduction !== 'false';
+      const LUNCH_DEDUCTION_HOURS = 0.5;
 
       // Import query function from database service
       const { query } = await import('../services/database');
@@ -738,6 +742,15 @@ router.get(
         a.date.localeCompare(b.date)
       );
 
+      // Apply lunch deduction per day if enabled
+      if (shouldDeductLunch) {
+        for (const dateData of dates) {
+          if (dateData.dailyTotalHours > 0) {
+            dateData.dailyTotalHours = Math.max(0, dateData.dailyTotalHours - LUNCH_DEDUCTION_HOURS);
+          }
+        }
+      }
+
       // Calculate grand total
       const grandTotalHours = dates.reduce(
         (sum, date) => sum + date.dailyTotalHours,
@@ -751,6 +764,7 @@ router.get(
         periodEnd: endDate,
         dates,
         grandTotalHours: Math.round(grandTotalHours * 100) / 100,
+        lunchDeducted: shouldDeductLunch,
       });
     } catch (error) {
       console.error('Error fetching employee hours:', error);
