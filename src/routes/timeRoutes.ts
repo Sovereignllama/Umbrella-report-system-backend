@@ -6,6 +6,7 @@ import { listFilesInFolder, readFileByPath } from '../services/sharepointService
 import { getSetting } from './settingsRoutes';
 import ExcelJS from 'exceljs';
 import { parseDate } from '../utils/dateParser';
+import { parseCSV, getCSVCell } from '../utils/csvParser';
 
 const router = Router();
 
@@ -83,7 +84,7 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
   // Match both "payroll_calender" (actual filename) and "payroll_calendar" (correct spelling)
   const payrollFile = files.find(
     f => (f.name.toLowerCase().includes('payroll_calender') || f.name.toLowerCase().includes('payroll_calendar'))
-      && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))
+      && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls') || f.name.endsWith('.csv'))
   );
 
   if (!payrollFile) {
@@ -93,32 +94,11 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
 
   console.log(`Reading payroll calendar file: ${payrollFile.name}`);
   const buffer = await readFileByPath(`${configFolder}/${payrollFile.name}`);
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-  const worksheet = workbook.worksheets[0];
-
-  if (!worksheet) {
-    return [];
-  }
-
-  // Try to extract year from the title row (row 2, merged across columns)
+  
+  // Determine file type and parse accordingly
+  const isCSV = payrollFile.name.endsWith('.csv');
+  
   let fileYear: number | null = null;
-  const titleRow = worksheet.getRow(2);
-  for (let col = 1; col <= 5; col++) {
-    let cellVal = titleRow.getCell(col).value;
-    if (cellVal) {
-      // Handle ExcelJS rich text objects
-      if (typeof cellVal === 'object' && (cellVal as any).richText) {
-        cellVal = (cellVal as any).richText.map((r: any) => r.text).join('');
-      }
-      const match = String(cellVal).match(/(\d{4})/);
-      if (match) {
-        fileYear = parseInt(match[1]);
-        break;
-      }
-    }
-  }
-
   const periods: Array<{
     year: number;
     periodNumber: number;
@@ -126,58 +106,139 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
     endDate: Date;
   }> = [];
 
-  // Data rows 5-30: col B = period number, col C = start date, col D = end date
-  // Process all rows 5-30 without early stopping to handle merged cells and edge cases
-  for (let rowNum = 5; rowNum <= 30; rowNum++) {
-    const row = worksheet.getRow(rowNum);
-    let periodVal = row.getCell(2).value; // Column B
-    let startDateVal = row.getCell(3).value; // Column C
-    let endDateVal = row.getCell(4).value; // Column D
+  if (isCSV) {
+    // Parse CSV file
+    const csvText = buffer.toString('utf-8');
+    const rows = parseCSV(csvText);
 
-    // Handle ExcelJS rich text objects (can occur with merged cells or formatted text)
-    if (periodVal && typeof periodVal === 'object' && (periodVal as any).richText) {
-      periodVal = (periodVal as any).richText.map((r: any) => r.text).join('').trim();
-    }
-    if (startDateVal && typeof startDateVal === 'object' && (startDateVal as any).richText) {
-      startDateVal = (startDateVal as any).richText.map((r: any) => r.text).join('').trim();
-    }
-    if (endDateVal && typeof endDateVal === 'object' && (endDateVal as any).richText) {
-      endDateVal = (endDateVal as any).richText.map((r: any) => r.text).join('').trim();
+    // Row 2 (index 1) contains the title with the year in column B (index 1)
+    if (rows.length > 1) {
+      const titleCell = getCSVCell(rows[1], 1); // Column B
+      const match = titleCell.match(/(\d{4})/);
+      if (match) {
+        fileYear = parseInt(match[1]);
+        console.log(`Extracted year from CSV title: ${fileYear}`);
+      }
     }
 
-    // Skip rows with all empty values (but don't break early)
-    if (!periodVal && !startDateVal && !endDateVal) {
-      continue;
+    // Data rows 5-30 (indices 4-29): col B (index 1) = period, col C (index 2) = start, col D (index 3) = end
+    for (let rowIdx = 4; rowIdx <= 29 && rowIdx < rows.length; rowIdx++) {
+      const row = rows[rowIdx];
+      const periodVal = getCSVCell(row, 1).trim(); // Column B
+      const startDateVal = getCSVCell(row, 2).trim(); // Column C
+      const endDateVal = getCSVCell(row, 3).trim(); // Column D
+
+      // Skip rows with all empty values
+      if (!periodVal && !startDateVal && !endDateVal) {
+        continue;
+      }
+
+      // Skip rows with incomplete data
+      if (!periodVal || !startDateVal || !endDateVal) {
+        console.log(`CSV row ${rowIdx + 1}: Skipping incomplete row (period=${periodVal}, start=${startDateVal ? 'present' : 'missing'}, end=${endDateVal ? 'present' : 'missing'})`);
+        continue;
+      }
+
+      const periodNumber = parseInt(periodVal);
+      const startDate = parseDate(startDateVal);
+      const endDate = parseDate(endDateVal);
+
+      if (!startDate || !endDate) {
+        console.log(`CSV row ${rowIdx + 1}: Could not parse dates. start=${startDateVal}, end=${endDateVal}`);
+        continue;
+      }
+
+      // Determine year from the file title or from the end date
+      const periodYear = fileYear || endDate.getFullYear();
+
+      if (!isNaN(periodNumber) && periodNumber > 0) {
+        periods.push({ year: periodYear, periodNumber, startDate, endDate });
+        console.log(`CSV row ${rowIdx + 1}: Successfully parsed period ${periodNumber} (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]})`);
+      } else {
+        console.log(`CSV row ${rowIdx + 1}: Invalid period number: ${periodVal}`);
+      }
+    }
+  } else {
+    // Parse Excel file
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const worksheet = workbook.worksheets[0];
+
+    if (!worksheet) {
+      return [];
     }
 
-    // Skip rows with incomplete data
-    if (!periodVal || !startDateVal || !endDateVal) {
-      console.log(`Row ${rowNum}: Skipping incomplete row (period=${periodVal}, start=${startDateVal ? 'present' : 'missing'}, end=${endDateVal ? 'present' : 'missing'})`);
-      continue;
+    // Try to extract year from the title row (row 2, merged across columns)
+    const titleRow = worksheet.getRow(2);
+    for (let col = 1; col <= 5; col++) {
+      let cellVal = titleRow.getCell(col).value;
+      if (cellVal) {
+        // Handle ExcelJS rich text objects
+        if (typeof cellVal === 'object' && (cellVal as any).richText) {
+          cellVal = (cellVal as any).richText.map((r: any) => r.text).join('');
+        }
+        const match = String(cellVal).match(/(\d{4})/);
+        if (match) {
+          fileYear = parseInt(match[1]);
+          break;
+        }
+      }
     }
 
-    const periodNumber = typeof periodVal === 'number'
-      ? periodVal
-      : parseInt(String(periodVal).trim());
+    // Data rows 5-30: col B = period number, col C = start date, col D = end date
+    // Process all rows 5-30 without early stopping to handle merged cells and edge cases
+    for (let rowNum = 5; rowNum <= 30; rowNum++) {
+      const row = worksheet.getRow(rowNum);
+      let periodVal = row.getCell(2).value; // Column B
+      let startDateVal = row.getCell(3).value; // Column C
+      let endDateVal = row.getCell(4).value; // Column D
 
-    const startDate = parseDate(startDateVal);
-    const endDate = parseDate(endDateVal);
+      // Handle ExcelJS rich text objects (can occur with merged cells or formatted text)
+      if (periodVal && typeof periodVal === 'object' && (periodVal as any).richText) {
+        periodVal = (periodVal as any).richText.map((r: any) => r.text).join('').trim();
+      }
+      if (startDateVal && typeof startDateVal === 'object' && (startDateVal as any).richText) {
+        startDateVal = (startDateVal as any).richText.map((r: any) => r.text).join('').trim();
+      }
+      if (endDateVal && typeof endDateVal === 'object' && (endDateVal as any).richText) {
+        endDateVal = (endDateVal as any).richText.map((r: any) => r.text).join('').trim();
+      }
 
-    if (!startDate || !endDate) {
-      console.log(`Row ${rowNum}: Could not parse dates. start=${JSON.stringify(startDateVal)}, end=${JSON.stringify(endDateVal)}`);
-      continue;
-    }
+      // Skip rows with all empty values (but don't break early)
+      if (!periodVal && !startDateVal && !endDateVal) {
+        continue;
+      }
 
-    // Determine year from the file title or from the end date
-    const periodYear = fileYear || endDate.getFullYear();
+      // Skip rows with incomplete data
+      if (!periodVal || !startDateVal || !endDateVal) {
+        console.log(`Row ${rowNum}: Skipping incomplete row (period=${periodVal}, start=${startDateVal ? 'present' : 'missing'}, end=${endDateVal ? 'present' : 'missing'})`);
+        continue;
+      }
 
-    if (!isNaN(periodNumber) && periodNumber > 0) {
-      periods.push({ year: periodYear, periodNumber, startDate, endDate });
-      console.log(`Row ${rowNum}: Successfully parsed period ${periodNumber} (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]})`);
-    } else {
-      console.log(`Row ${rowNum}: Invalid period number: ${periodVal}`);
+      const periodNumber = typeof periodVal === 'number'
+        ? periodVal
+        : parseInt(String(periodVal).trim());
+
+      const startDate = parseDate(startDateVal);
+      const endDate = parseDate(endDateVal);
+
+      if (!startDate || !endDate) {
+        console.log(`Row ${rowNum}: Could not parse dates. start=${JSON.stringify(startDateVal)}, end=${JSON.stringify(endDateVal)}`);
+        continue;
+      }
+
+      // Determine year from the file title or from the end date
+      const periodYear = fileYear || endDate.getFullYear();
+
+      if (!isNaN(periodNumber) && periodNumber > 0) {
+        periods.push({ year: periodYear, periodNumber, startDate, endDate });
+        console.log(`Row ${rowNum}: Successfully parsed period ${periodNumber} (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]})`);
+      } else {
+        console.log(`Row ${rowNum}: Invalid period number: ${periodVal}`);
+      }
     }
   }
+
 
   console.log(`Parsed ${periods.length} pay periods from payroll calendar`);
 
