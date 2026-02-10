@@ -1,4 +1,48 @@
 /**
+ * Map month names (full and abbreviated) to zero-indexed month numbers.
+ * JavaScript's Date constructor uses 0-11 for January-December.
+ */
+const MONTH_MAP: Record<string, number> = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+  jan: 0, feb: 1, mar: 2, apr: 3, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+/**
+ * Parse a date string using explicit regex-based parsing and Date.UTC() construction.
+ * This eliminates timezone ambiguity that occurs with new Date(string) parsing.
+ * Returns null if the string doesn't match any supported format.
+ */
+function parseDateString(str: string): Date | null {
+  // Strip day-of-week prefix first: "Saturday, December 13, 2025" → "December 13, 2025"
+  const cleaned = str.replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s*/i, '').trim();
+  
+  // Try "Month Day, Year" format (e.g., "December 13, 2025")
+  const mdyMatch = cleaned.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (mdyMatch) {
+    const month = MONTH_MAP[mdyMatch[1].toLowerCase()];
+    if (month !== undefined) {
+      return new Date(Date.UTC(parseInt(mdyMatch[3]), month, parseInt(mdyMatch[2]), 12, 0, 0));
+    }
+  }
+  
+  // Try "YYYY-MM-DD" format
+  const isoMatch = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    return new Date(Date.UTC(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]), 12, 0, 0));
+  }
+  
+  // Try "MM/DD/YYYY" format
+  const slashMatch = cleaned.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    return new Date(Date.UTC(parseInt(slashMatch[3]), parseInt(slashMatch[1]) - 1, parseInt(slashMatch[2]), 12, 0, 0));
+  }
+  
+  return null;
+}
+
+/**
  * Robustly parse a date value from an ExcelJS cell.
  * Handles: native Dates, day-name prefixed strings ("Saturday, December 13, 2025"),
  * ExcelJS rich text objects, Excel serial date numbers, formula cells.
@@ -43,18 +87,11 @@ export function parseDate(val: any): Date | null {
   const str = String(val).trim();
   if (!str) return null;
   
-  // Strip day-of-week prefix first: "Saturday, December 13, 2025" → "December 13, 2025"
-  // This prevents timezone-related parsing issues when the day name is present
-  const stripped = str.replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s*/i, '');
-  if (stripped !== str) {
-    const parsed = new Date(stripped);
-    if (!isNaN(parsed.getTime())) {
-      parsed.setUTCHours(12, 0, 0, 0);
-      return parsed;
-    }
-  }
+  // Try explicit regex-based parsing first (eliminates timezone ambiguity)
+  const parsed = parseDateString(str);
+  if (parsed) return parsed;
   
-  // Try standard parsing as fallback
+  // Fall back to standard Date constructor as last resort
   const direct = new Date(str);
   if (!isNaN(direct.getTime())) {
     direct.setUTCHours(12, 0, 0, 0);
