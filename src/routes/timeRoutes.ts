@@ -44,27 +44,9 @@ function formatMonthDay(date: Date | string): string {
     date = new Date(date);
   }
   
-  // For Date objects, extract components in Vancouver timezone
-  const parts = date.toLocaleString('en-US', { 
-    timeZone: 'America/Vancouver',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).split('/');
-  
-  // parts is [MM, DD, YYYY]
-  if (parts.length === 3) {
-    const month = parseInt(parts[0]) - 1;
-    const day = parseInt(parts[1]);
-    return `${MONTH_ABBR[month]} ${day}`;
-  }
-  
-  // Fallback: use simpler formatting
-  return date.toLocaleString('en-US', { 
-    timeZone: 'America/Vancouver',
-    month: 'short',
-    day: 'numeric'
-  }).replace(',', '');
+  // For Date objects, use UTC components to avoid timezone shift
+  // PostgreSQL DATE values arrive as midnight UTC
+  return `${MONTH_ABBR[date.getUTCMonth()]} ${date.getUTCDate()}`;
 }
 
 /**
@@ -405,8 +387,8 @@ router.get(
 
       // Get all time entries in the date range
       const entries = await TimeEntryRepository.findByDateRange(
-        new Date(startDate as string),
-        new Date(endDate as string)
+        startDate as string,
+        endDate as string
       );
 
       // Extract unique employees from time entries
@@ -478,8 +460,8 @@ router.get(
       }
 
       const entries = await TimeEntryRepository.findByDateRange(
-        new Date(startDate as string),
-        new Date(endDate as string),
+        startDate as string,
+        endDate as string,
         employeeId ? String(employeeId) : undefined,
         projectId ? String(projectId) : undefined
       );
@@ -511,8 +493,8 @@ router.get(
       }
 
       const entries = await TimeEntryRepository.findByDateRange(
-        new Date(startDate as string),
-        new Date(endDate as string),
+        startDate as string,
+        endDate as string,
         employeeId ? String(employeeId) : undefined,
         projectId ? String(projectId) : undefined
       );
@@ -596,7 +578,7 @@ router.get(
       }
 
       const summary = await TimeEntryRepository.getDailySummary(
-        new Date(date as string)
+        date as string
       );
 
       // Calculate aggregates

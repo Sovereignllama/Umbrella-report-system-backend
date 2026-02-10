@@ -50,8 +50,8 @@ export class TimeEntryRepository {
   }
 
   static async findByDateRange(
-    startDate: Date,
-    endDate: Date,
+    startDate: Date | string,
+    endDate: Date | string,
     employeeId?: string,
     projectId?: string
   ): Promise<TimeEntry[]> {
@@ -102,7 +102,7 @@ export class TimeEntryRepository {
     return result.rows;
   }
 
-  static async getDailySummary(date: Date): Promise<Array<{
+  static async getDailySummary(date: Date | string): Promise<Array<{
     employeeName: string;
     employeeId: string | null;
     projectName: string | null;
