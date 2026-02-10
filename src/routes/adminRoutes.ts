@@ -469,8 +469,19 @@ router.get('/pay-periods/:year', authMiddleware, requireAdmin, async (req: AuthR
 
 /**
  * POST /api/admin/pay-periods/import
- * Import pay periods from Excel file (base64 encoded)
- * Expected Excel columns: Year, Period Number, Start Date, End Date
+ * Import pay periods from Excel or CSV file (base64 encoded)
+ * 
+ * Request body:
+ * - fileBase64: Base64-encoded file content (required)
+ * - fileType: Optional file type hint ('csv' or 'excel'). If not provided, 
+ *   file type will be auto-detected from binary signatures:
+ *   - Excel .xlsx files start with 'PK' (ZIP archive)
+ *   - Excel .xls files start with 0xD0CF (OLE2 format)
+ *   - CSV files are plain text
+ * 
+ * Supported formats:
+ * - Excel: Columns Year, Period Number, Start Date, End Date
+ * - CSV: Payroll calendar format with year in row 2, data in rows 5-30
  */
 router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
