@@ -653,6 +653,8 @@ router.get(
         regular_hours: number;
         ot_hours: number;
         dt_hours: number;
+        start_time: string | null;
+        end_time: string | null;
       }>(
         `SELECT 
           dr.report_date,
@@ -660,7 +662,9 @@ router.get(
           p.name as project_name,
           rll.regular_hours,
           rll.ot_hours,
-          rll.dt_hours
+          rll.dt_hours,
+          rll.start_time,
+          rll.end_time
          FROM report_labor_lines rll
          INNER JOIN daily_reports dr ON rll.report_id = dr.id
          LEFT JOIN projects p ON dr.project_id = p.id
@@ -668,7 +672,7 @@ router.get(
            AND dr.report_date >= $2 
            AND dr.report_date <= $3
            AND dr.status = 'submitted'
-         ORDER BY dr.report_date, p.name`,
+         ORDER BY dr.report_date, rll.start_time, p.name`,
         [employeeId as string, startDate as string, endDate as string]
       );
 
@@ -676,8 +680,8 @@ router.get(
       interface ProjectData {
         projectId: string | null;
         projectName: string | null;
-        startTime: null; // Not stored in report_labor_lines table, always null
-        endTime: null;   // Not stored in report_labor_lines table, always null
+        startTime: string | null;
+        endTime: string | null;
         totalHours: number;
       }
 
@@ -709,12 +713,19 @@ router.get(
 
         if (existingProject) {
           existingProject.totalHours += totalHours;
+          // Update time range if needed (use earliest start, latest end)
+          if (row.start_time && (!existingProject.startTime || row.start_time < existingProject.startTime)) {
+            existingProject.startTime = row.start_time;
+          }
+          if (row.end_time && (!existingProject.endTime || row.end_time > existingProject.endTime)) {
+            existingProject.endTime = row.end_time;
+          }
         } else {
           dateData.projects.push({
             projectId: row.project_id,
             projectName: row.project_name,
-            startTime: null,
-            endTime: null,
+            startTime: row.start_time,
+            endTime: row.end_time,
             totalHours,
           });
         }
