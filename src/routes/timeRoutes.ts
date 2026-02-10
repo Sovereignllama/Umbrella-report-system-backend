@@ -663,6 +663,8 @@ router.get(
       }
 
       // If no employee found in employees table, use the identifier as-is (it may only exist in labor lines)
+      // Note: When using a name-based identifier, both id and name fields will contain the same name value.
+      // This is intentional to support the SQL WHERE clause that matches by either employee_id or employee_name.
       if (!employee) {
         employee = { id: employeeId as string, name: employeeId as string };
       }
