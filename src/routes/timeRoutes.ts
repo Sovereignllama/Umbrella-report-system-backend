@@ -406,7 +406,7 @@ router.get(
 
       // Also get employees from report_labor_lines
       const { query } = await import('../services/database');
-      const laborResult = await query<{ id: string | null; name: string }>(
+      const laborResult = await query<{ id: string; name: string }>(
         `SELECT DISTINCT 
            COALESCE(e.id, rll.employee_name) as id,
            COALESCE(e.name, rll.employee_name) as name
