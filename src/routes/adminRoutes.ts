@@ -540,6 +540,7 @@ router.post('/pay-periods/import', authMiddleware, requireAdmin, async (req: Aut
 
         // Skip rows with incomplete data
         if (!periodVal || !startDateVal || !endDateVal) {
+          console.log(`CSV row ${rowIdx + 1}: Skipping incomplete row (period=${periodVal}, start=${startDateVal ? 'present' : 'missing'}, end=${endDateVal ? 'present' : 'missing'})`);
           continue;
         }
 
