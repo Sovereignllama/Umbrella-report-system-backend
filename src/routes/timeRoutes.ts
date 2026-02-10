@@ -276,8 +276,8 @@ router.get(
 
       let periods = await PayPeriodRepository.findByYear(year);
 
-      // If no periods in DB, try auto-loading from SharePoint payroll_calender.xlsx
-      if (periods.length === 0) {
+      // If fewer than 26 periods in DB (incomplete or missing), try auto-loading from SharePoint
+      if (periods.length < 26) {
         try {
           const loaded = await loadPayPeriodsFromSharePoint(year);
           if (loaded.length > 0) {
