@@ -407,13 +407,16 @@ router.get(
       // Also get employees from report_labor_lines
       const { query } = await import('../services/database');
       const laborResult = await query<{ id: string; name: string }>(
-        `SELECT DISTINCT e.id, e.name
+        `SELECT DISTINCT 
+           COALESCE(e.id, rll.employee_name) as id,
+           COALESCE(e.name, rll.employee_name) as name
          FROM report_labor_lines rll
          INNER JOIN daily_reports dr ON rll.report_id = dr.id
-         INNER JOIN employees e ON rll.employee_id = e.id
+         LEFT JOIN employees e ON rll.employee_id = e.id
          WHERE dr.report_date >= $1 
            AND dr.report_date <= $2
-           AND dr.status = 'submitted'`,
+           AND dr.status = 'submitted'
+           AND (rll.employee_id IS NOT NULL OR rll.employee_name IS NOT NULL)`,
         [startDate as string, endDate as string]
       );
 
@@ -636,20 +639,38 @@ router.get(
       // Import query function from database service
       const { query } = await import('../services/database');
 
-      // Get employee name
-      const employeeResult = await query<{ id: string; name: string }>(
-        'SELECT id, name FROM employees WHERE id = $1',
-        [employeeId as string]
-      );
-
-      if (employeeResult.rows.length === 0) {
-        res.status(404).json({ error: 'Employee not found' });
-        return;
+      // Determine if employeeId is a UUID or a name
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(employeeId as string);
+      
+      // Try to get employee from the employees table (by UUID or name)
+      let employee: { id: string; name: string } | null = null;
+      if (isUUID) {
+        const employeeResult = await query<{ id: string; name: string }>(
+          'SELECT id, name FROM employees WHERE id = $1',
+          [employeeId as string]
+        );
+        if (employeeResult.rows.length > 0) {
+          employee = employeeResult.rows[0];
+        }
+      } else {
+        const employeeResult = await query<{ id: string; name: string }>(
+          'SELECT id, name FROM employees WHERE name = $1',
+          [employeeId as string]
+        );
+        if (employeeResult.rows.length > 0) {
+          employee = employeeResult.rows[0];
+        }
       }
 
-      const employee = employeeResult.rows[0];
+      // If no employee found in employees table, use the identifier as-is (it may only exist in labor lines)
+      // Note: When using a name-based identifier, both id and name fields will contain the same name value.
+      // This is intentional to support the SQL WHERE clause that matches by either employee_id or employee_name.
+      if (!employee) {
+        employee = { id: employeeId as string, name: employeeId as string };
+      }
 
       // Query labor lines joined with daily reports and projects
+      // Match by either employee_id (UUID) or employee_name (string)
       const laborResult = await query<{
         report_date: string;
         project_id: string | null;
@@ -672,7 +693,7 @@ router.get(
          FROM report_labor_lines rll
          INNER JOIN daily_reports dr ON rll.report_id = dr.id
          LEFT JOIN projects p ON dr.project_id = p.id
-         WHERE rll.employee_id = $1 
+         WHERE (rll.employee_id = $1 OR rll.employee_name = $1)
            AND dr.report_date >= $2 
            AND dr.report_date <= $3
            AND dr.status = 'submitted'
@@ -840,33 +861,35 @@ router.get(
 
         if (projectRow.project_id) {
           employeeQuery = `SELECT 
-            e.id as employee_id,
-            e.name as employee_name,
+            COALESCE(e.id, rll.employee_name) as employee_id,
+            COALESCE(e.name, rll.employee_name) as employee_name,
             SUM(rll.regular_hours + rll.ot_hours + rll.dt_hours) as total_hours
            FROM report_labor_lines rll
            INNER JOIN daily_reports dr ON rll.report_id = dr.id
-           INNER JOIN employees e ON rll.employee_id = e.id
+           LEFT JOIN employees e ON rll.employee_id = e.id
            WHERE dr.project_id = $1
              AND dr.report_date >= $2 
              AND dr.report_date <= $3
              AND dr.status = 'submitted'
-           GROUP BY e.id, e.name
-           ORDER BY e.name`;
+             AND (rll.employee_id IS NOT NULL OR rll.employee_name IS NOT NULL)
+           GROUP BY COALESCE(e.id, rll.employee_name), COALESCE(e.name, rll.employee_name)
+           ORDER BY COALESCE(e.name, rll.employee_name)`;
           employeeParams = [projectRow.project_id, startDate as string, endDate as string];
         } else {
           employeeQuery = `SELECT 
-            e.id as employee_id,
-            e.name as employee_name,
+            COALESCE(e.id, rll.employee_name) as employee_id,
+            COALESCE(e.name, rll.employee_name) as employee_name,
             SUM(rll.regular_hours + rll.ot_hours + rll.dt_hours) as total_hours
            FROM report_labor_lines rll
            INNER JOIN daily_reports dr ON rll.report_id = dr.id
-           INNER JOIN employees e ON rll.employee_id = e.id
+           LEFT JOIN employees e ON rll.employee_id = e.id
            WHERE dr.project_id IS NULL
              AND dr.report_date >= $1 
              AND dr.report_date <= $2
              AND dr.status = 'submitted'
-           GROUP BY e.id, e.name
-           ORDER BY e.name`;
+             AND (rll.employee_id IS NOT NULL OR rll.employee_name IS NOT NULL)
+           GROUP BY COALESCE(e.id, rll.employee_name), COALESCE(e.name, rll.employee_name)
+           ORDER BY COALESCE(e.name, rll.employee_name)`;
           employeeParams = [startDate as string, endDate as string];
         }
 
