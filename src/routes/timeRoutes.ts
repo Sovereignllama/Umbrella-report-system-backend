@@ -428,10 +428,13 @@ router.get(
         }
       }
 
-      // Convert to array and sort by name
-      const employees = Array.from(employeeMap.values()).sort((a, b) =>
-        a.name.localeCompare(b.name)
-      );
+      // Convert to array and sort by name, then map to match frontend's EmployeeSummary interface
+      const employees = Array.from(employeeMap.values())
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(emp => ({
+          employeeId: emp.id || emp.name, // Use name as fallback if no UUID
+          employeeName: emp.name,
+        }));
 
       res.json(employees);
     } catch (error) {
