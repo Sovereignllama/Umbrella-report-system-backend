@@ -16,6 +16,8 @@ export interface CreateDailyReportData {
     employeeId: string;
     employeeName?: string;
     skillName?: string;
+    startTime?: string | null;
+    endTime?: string | null;
     regularHours: number;
     otHours: number;
     dtHours: number;
@@ -117,8 +119,8 @@ export class DailyReportRepository {
       if (data.laborLines.length > 0) {
         const laborValues = data.laborLines
           .map((_line, idx) => {
-            const paramOffset = idx * 7;
-            return `($1, $${paramOffset + 2}, $${paramOffset + 3}, $${paramOffset + 4}, $${paramOffset + 5}, $${paramOffset + 6}, $${paramOffset + 7}, $${paramOffset + 8})`;
+            const paramOffset = idx * 9;
+            return `($1, $${paramOffset + 2}, $${paramOffset + 3}, $${paramOffset + 4}, $${paramOffset + 5}, $${paramOffset + 6}, $${paramOffset + 7}, $${paramOffset + 8}, $${paramOffset + 9}, $${paramOffset + 10})`;
           })
           .join(',');
 
@@ -133,12 +135,14 @@ export class DailyReportRepository {
             line.regularHours,
             line.otHours,
             line.dtHours,
-            line.workDescription || ''
+            line.workDescription || '',
+            line.startTime || null,
+            line.endTime || null
           );
         });
 
         await client.query(
-          `INSERT INTO report_labor_lines (report_id, employee_id, employee_name, skill_name, regular_hours, ot_hours, dt_hours, work_description)
+          `INSERT INTO report_labor_lines (report_id, employee_id, employee_name, skill_name, regular_hours, ot_hours, dt_hours, work_description, start_time, end_time)
            VALUES ${laborValues}`,
           laborParams
         );

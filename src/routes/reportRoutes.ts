@@ -194,6 +194,8 @@ router.post(
         otHours: line.ot_hours || line.otHours || 0,
         dtHours: line.dt_hours || line.dtHours || 0,
         workDescription: line.work_description || line.workDescription || '',
+        startTime: line.start_time || line.startTime || null,
+        endTime: line.end_time || line.endTime || null,
       }));
 
       // Map equipment lines to the expected format
