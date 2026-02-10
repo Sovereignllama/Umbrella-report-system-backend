@@ -5,7 +5,12 @@
  */
 export function parseDate(val: any): Date | null {
   if (!val) return null;
-  if (val instanceof Date) return val;
+  if (val instanceof Date) {
+    // Set to noon UTC to prevent timezone shifts
+    const date = new Date(val);
+    date.setUTCHours(12, 0, 0, 0);
+    return date;
+  }
   
   // Excel epoch offset: Excel's date system started on December 30, 1899,
   // while Unix epoch started on January 1, 1970 (difference of 25569 days)
@@ -30,7 +35,9 @@ export function parseDate(val: any): Date | null {
   
   // Excel serial date number (e.g., 45639 = some date)
   if (typeof val === 'number' && val > EXCEL_EPOCH_OFFSET) {
-    return new Date((val - EXCEL_EPOCH_OFFSET) * SECONDS_PER_DAY * 1000);
+    const date = new Date((val - EXCEL_EPOCH_OFFSET) * SECONDS_PER_DAY * 1000);
+    date.setUTCHours(12, 0, 0, 0);
+    return date;
   }
   
   const str = String(val).trim();
@@ -38,13 +45,19 @@ export function parseDate(val: any): Date | null {
   
   // Try standard parsing first
   const direct = new Date(str);
-  if (!isNaN(direct.getTime())) return direct;
+  if (!isNaN(direct.getTime())) {
+    direct.setUTCHours(12, 0, 0, 0);
+    return direct;
+  }
   
   // Strip day-of-week prefix: "Saturday, December 13, 2025" → "December 13, 2025"
   const stripped = str.replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s*/i, '');
   if (stripped !== str) {
     const parsed = new Date(stripped);
-    if (!isNaN(parsed.getTime())) return parsed;
+    if (!isNaN(parsed.getTime())) {
+      parsed.setUTCHours(12, 0, 0, 0);
+      return parsed;
+    }
   }
   
   return null;
