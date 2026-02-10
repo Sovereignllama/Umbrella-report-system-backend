@@ -660,14 +660,14 @@ router.get(
       // Query labor lines joined with daily reports and projects
       // Match by either employee_id (UUID) or employee_name (string)
       const laborResult = await query<{
-        report_date: string;
-        project_id: string | null;
-        project_name: string | null;
-        regular_hours: number;
-        ot_hours: number;
-        dt_hours: number;
-        start_time: string | null;
-        end_time: string | null;
+        reportDate: string;
+        projectId: string | null;
+        projectName: string | null;
+        regularHours: number;
+        otHours: number;
+        dtHours: number;
+        startTime: string | null;
+        endTime: string | null;
       }>(
         `SELECT 
           dr.report_date,
@@ -707,7 +707,7 @@ router.get(
       const dateMap = new Map<string, DateData>();
 
       for (const row of laborResult.rows) {
-        const dateKey = row.report_date;
+        const dateKey = row.reportDate;
         if (!dateMap.has(dateKey)) {
           dateMap.set(dateKey, {
             date: dateKey,
@@ -717,11 +717,11 @@ router.get(
         }
 
         const dateData = dateMap.get(dateKey)!;
-        const totalHours = (row.regular_hours || 0) + (row.ot_hours || 0) + (row.dt_hours || 0);
+        const totalHours = (row.regularHours || 0) + (row.otHours || 0) + (row.dtHours || 0);
 
         // Check if project already exists for this date
         const existingProject = dateData.projects.find(
-          p => p.projectId === row.project_id
+          p => p.projectId === row.projectId
         );
 
         if (existingProject) {
@@ -730,18 +730,18 @@ router.get(
           // PostgreSQL TIME values are returned as 'HH:MM:SS' strings which compare correctly lexicographically
           // Note: This assumes times are within the same calendar day (no midnight crossings)
           // which is valid since we group by report_date
-          if (row.start_time && (!existingProject.startTime || row.start_time < existingProject.startTime)) {
-            existingProject.startTime = row.start_time;
+          if (row.startTime && (!existingProject.startTime || row.startTime < existingProject.startTime)) {
+            existingProject.startTime = row.startTime;
           }
-          if (row.end_time && (!existingProject.endTime || row.end_time > existingProject.endTime)) {
-            existingProject.endTime = row.end_time;
+          if (row.endTime && (!existingProject.endTime || row.endTime > existingProject.endTime)) {
+            existingProject.endTime = row.endTime;
           }
         } else {
           dateData.projects.push({
-            projectId: row.project_id,
-            projectName: row.project_name,
-            startTime: row.start_time,
-            endTime: row.end_time,
+            projectId: row.projectId,
+            projectName: row.projectName,
+            startTime: row.startTime,
+            endTime: row.endTime,
             totalHours,
           });
         }
@@ -812,11 +812,11 @@ router.get(
 
       // Query aggregated data by project
       const projectResult = await query<{
-        project_id: string | null;
-        project_name: string | null;
-        total_regular_hours: number;
-        total_ot_hours: number;
-        total_dt_hours: number;
+        projectId: string | null;
+        projectName: string | null;
+        totalRegularHours: number;
+        totalOtHours: number;
+        totalDtHours: number;
       }>(
         `SELECT 
           dr.project_id,
@@ -847,7 +847,7 @@ router.get(
         let employeeQuery: string;
         let employeeParams: (string | null)[];
 
-        if (projectRow.project_id) {
+        if (projectRow.projectId) {
           employeeQuery = `SELECT 
             COALESCE(e.id::text, rll.employee_name) as employee_id,
             COALESCE(e.name, rll.employee_name) as employee_name,
@@ -862,7 +862,7 @@ router.get(
              AND (rll.employee_id IS NOT NULL OR rll.employee_name IS NOT NULL)
            GROUP BY COALESCE(e.id::text, rll.employee_name), COALESCE(e.name, rll.employee_name)
            ORDER BY COALESCE(e.name, rll.employee_name)`;
-          employeeParams = [projectRow.project_id, startDate as string, endDate as string];
+          employeeParams = [projectRow.projectId, startDate as string, endDate as string];
         } else {
           employeeQuery = `SELECT 
             COALESCE(e.id::text, rll.employee_name) as employee_id,
@@ -882,23 +882,23 @@ router.get(
         }
 
         const employeeResult = await query<{
-          employee_id: string;
-          employee_name: string;
-          total_hours: number;
+          employeeId: string;
+          employeeName: string;
+          totalHours: number;
         }>(employeeQuery, employeeParams);
 
         const employees = employeeResult.rows.map(emp => {
-          employeeSet.add(emp.employee_id);
+          employeeSet.add(emp.employeeId);
           return {
-            employeeId: emp.employee_id,
-            employeeName: emp.employee_name,
-            totalHours: Math.round((emp.total_hours || 0) * 100) / 100,
+            employeeId: emp.employeeId,
+            employeeName: emp.employeeName,
+            totalHours: Math.round((emp.totalHours || 0) * 100) / 100,
           };
         });
 
-        const regularHours = projectRow.total_regular_hours || 0;
-        const otHours = projectRow.total_ot_hours || 0;
-        const dtHours = projectRow.total_dt_hours || 0;
+        const regularHours = projectRow.totalRegularHours || 0;
+        const otHours = projectRow.totalOtHours || 0;
+        const dtHours = projectRow.totalDtHours || 0;
         const projectTotalHours = regularHours + otHours + dtHours;
 
         totalRegularHours += regularHours;
@@ -906,8 +906,8 @@ router.get(
         totalDtHours += dtHours;
 
         projects.push({
-          projectId: projectRow.project_id,
-          projectName: projectRow.project_name,
+          projectId: projectRow.projectId,
+          projectName: projectRow.projectName,
           totalRegularHours: Math.round(regularHours * 100) / 100,
           totalOtHours: Math.round(otHours * 100) / 100,
           totalDtHours: Math.round(dtHours * 100) / 100,
