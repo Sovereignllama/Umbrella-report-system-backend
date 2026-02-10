@@ -43,14 +43,8 @@ export function parseDate(val: any): Date | null {
   const str = String(val).trim();
   if (!str) return null;
   
-  // Try standard parsing first
-  const direct = new Date(str);
-  if (!isNaN(direct.getTime())) {
-    direct.setUTCHours(12, 0, 0, 0);
-    return direct;
-  }
-  
-  // Strip day-of-week prefix: "Saturday, December 13, 2025" → "December 13, 2025"
+  // Strip day-of-week prefix first: "Saturday, December 13, 2025" → "December 13, 2025"
+  // This prevents timezone-related parsing issues when the day name is present
   const stripped = str.replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s*/i, '');
   if (stripped !== str) {
     const parsed = new Date(stripped);
@@ -58,6 +52,13 @@ export function parseDate(val: any): Date | null {
       parsed.setUTCHours(12, 0, 0, 0);
       return parsed;
     }
+  }
+  
+  // Try standard parsing as fallback
+  const direct = new Date(str);
+  if (!isNaN(direct.getTime())) {
+    direct.setUTCHours(12, 0, 0, 0);
+    return direct;
   }
   
   return null;
