@@ -672,7 +672,7 @@ router.get(
         `SELECT 
           dr.report_date,
           dr.project_id,
-          p.name as project_name,
+          COALESCE(p.name, dr.project_name, dr.client_name) as project_name,
           rll.regular_hours,
           rll.ot_hours,
           rll.dt_hours,
@@ -685,7 +685,7 @@ router.get(
            AND dr.report_date >= $2 
            AND dr.report_date <= $3
            AND dr.status = 'submitted'
-         ORDER BY dr.report_date, rll.start_time NULLS LAST, p.name`,
+         ORDER BY dr.report_date, rll.start_time NULLS LAST, COALESCE(p.name, dr.project_name, dr.client_name)`,
         [employeeId as string, startDate as string, endDate as string]
       );
 
@@ -820,7 +820,7 @@ router.get(
       }>(
         `SELECT 
           dr.project_id,
-          p.name as project_name,
+          COALESCE(p.name, dr.project_name, dr.client_name) as project_name,
           SUM(rll.regular_hours) as total_regular_hours,
           SUM(rll.ot_hours) as total_ot_hours,
           SUM(rll.dt_hours) as total_dt_hours
@@ -830,8 +830,8 @@ router.get(
          WHERE dr.report_date >= $1 
            AND dr.report_date <= $2
            AND dr.status = 'submitted'
-         GROUP BY dr.project_id, p.name
-         ORDER BY p.name`,
+         GROUP BY dr.project_id, COALESCE(p.name, dr.project_name, dr.client_name)
+         ORDER BY COALESCE(p.name, dr.project_name, dr.client_name)`,
         [startDate as string, endDate as string]
       );
 

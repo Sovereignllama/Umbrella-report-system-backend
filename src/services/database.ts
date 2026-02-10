@@ -214,6 +214,15 @@ export async function runMigrations(): Promise<void> {
           ON report_labor_lines(start_time, end_time) 
           WHERE start_time IS NOT NULL AND end_time IS NOT NULL;
         `
+      },
+      {
+        name: '014_make_employee_id_nullable',
+        sql: `
+          ALTER TABLE report_labor_lines ALTER COLUMN employee_id DROP NOT NULL;
+          ALTER TABLE report_labor_lines DROP CONSTRAINT IF EXISTS report_labor_lines_employee_id_fkey;
+          ALTER TABLE report_equipment_lines ALTER COLUMN equipment_id DROP NOT NULL;
+          ALTER TABLE report_equipment_lines DROP CONSTRAINT IF EXISTS report_equipment_lines_equipment_id_fkey;
+        `
       }
     ];
 
