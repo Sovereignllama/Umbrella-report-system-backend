@@ -387,7 +387,7 @@ router.post(
 
 /**
  * GET /api/time/employees
- * Get list of employees who have time entries in the specified date range
+ * Get list of employees who have time entries or labor lines in the specified date range
  * Query params: startDate, endDate
  */
 router.get(
@@ -409,7 +409,7 @@ router.get(
         new Date(endDate as string)
       );
 
-      // Extract unique employees
+      // Extract unique employees from time entries
       const employeeMap = new Map<string, { name: string; id: string | null }>();
       for (const entry of entries) {
         if (!entry.employeeName) continue; // Skip entries without employee names
@@ -418,6 +418,30 @@ router.get(
           employeeMap.set(key, {
             name: entry.employeeName,
             id: entry.employeeId || null,
+          });
+        }
+      }
+
+      // Also get employees from report_labor_lines
+      const { query } = await import('../services/database');
+      const laborResult = await query<{ id: string; name: string }>(
+        `SELECT DISTINCT e.id, e.name
+         FROM report_labor_lines rll
+         INNER JOIN daily_reports dr ON rll.report_id = dr.id
+         INNER JOIN employees e ON rll.employee_id = e.id
+         WHERE dr.report_date >= $1 
+           AND dr.report_date <= $2
+           AND dr.status = 'submitted'`,
+        [startDate as string, endDate as string]
+      );
+
+      // Merge labor line employees into the map
+      for (const emp of laborResult.rows) {
+        const key = emp.name.toLowerCase();
+        if (!employeeMap.has(key)) {
+          employeeMap.set(key, {
+            name: emp.name,
+            id: emp.id,
           });
         }
       }
@@ -598,6 +622,287 @@ router.get(
     } catch (error) {
       console.error('Error fetching time dashboard summary:', error);
       res.status(500).json({ error: 'Failed to fetch dashboard summary' });
+    }
+  }
+);
+
+/**
+ * GET /api/time/employee-hours
+ * Get employee hours report for a specific employee and date range
+ * Query params: employeeId (UUID), startDate, endDate
+ */
+router.get(
+  '/employee-hours',
+  authMiddleware,
+  requireSupervisorOrBoss,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { employeeId, startDate, endDate } = req.query;
+
+      if (!employeeId || !startDate || !endDate) {
+        res.status(400).json({ error: 'employeeId, startDate, and endDate are required' });
+        return;
+      }
+
+      // Import query function from database service
+      const { query } = await import('../services/database');
+
+      // Get employee name
+      const employeeResult = await query<{ id: string; name: string }>(
+        'SELECT id, name FROM employees WHERE id = $1',
+        [employeeId as string]
+      );
+
+      if (employeeResult.rows.length === 0) {
+        res.status(404).json({ error: 'Employee not found' });
+        return;
+      }
+
+      const employee = employeeResult.rows[0];
+
+      // Query labor lines joined with daily reports and projects
+      const laborResult = await query<{
+        report_date: string;
+        project_id: string | null;
+        project_name: string | null;
+        regular_hours: number;
+        ot_hours: number;
+        dt_hours: number;
+      }>(
+        `SELECT 
+          dr.report_date,
+          dr.project_id,
+          p.name as project_name,
+          rll.regular_hours,
+          rll.ot_hours,
+          rll.dt_hours
+         FROM report_labor_lines rll
+         INNER JOIN daily_reports dr ON rll.report_id = dr.id
+         LEFT JOIN projects p ON dr.project_id = p.id
+         WHERE rll.employee_id = $1 
+           AND dr.report_date >= $2 
+           AND dr.report_date <= $3
+           AND dr.status = 'submitted'
+         ORDER BY dr.report_date, p.name`,
+        [employeeId as string, startDate as string, endDate as string]
+      );
+
+      // Group results by date, then by project
+      interface ProjectData {
+        projectId: string | null;
+        projectName: string | null;
+        startTime: null; // Not stored in report_labor_lines table, always null
+        endTime: null;   // Not stored in report_labor_lines table, always null
+        totalHours: number;
+      }
+
+      interface DateData {
+        date: string;
+        projects: ProjectData[];
+        dailyTotalHours: number;
+      }
+
+      const dateMap = new Map<string, DateData>();
+
+      for (const row of laborResult.rows) {
+        const dateKey = row.report_date;
+        if (!dateMap.has(dateKey)) {
+          dateMap.set(dateKey, {
+            date: dateKey,
+            projects: [],
+            dailyTotalHours: 0,
+          });
+        }
+
+        const dateData = dateMap.get(dateKey)!;
+        const totalHours = (row.regular_hours || 0) + (row.ot_hours || 0) + (row.dt_hours || 0);
+
+        // Check if project already exists for this date
+        const existingProject = dateData.projects.find(
+          p => p.projectId === row.project_id
+        );
+
+        if (existingProject) {
+          existingProject.totalHours += totalHours;
+        } else {
+          dateData.projects.push({
+            projectId: row.project_id,
+            projectName: row.project_name,
+            startTime: null,
+            endTime: null,
+            totalHours,
+          });
+        }
+
+        dateData.dailyTotalHours += totalHours;
+      }
+
+      // Convert map to array and sort by date
+      const dates = Array.from(dateMap.values()).sort((a, b) =>
+        a.date.localeCompare(b.date)
+      );
+
+      // Calculate grand total
+      const grandTotalHours = dates.reduce(
+        (sum, date) => sum + date.dailyTotalHours,
+        0
+      );
+
+      res.json({
+        employeeId: employee.id,
+        employeeName: employee.name,
+        periodStart: startDate,
+        periodEnd: endDate,
+        dates,
+        grandTotalHours: Math.round(grandTotalHours * 100) / 100,
+      });
+    } catch (error) {
+      console.error('Error fetching employee hours:', error);
+      res.status(500).json({ error: 'Failed to fetch employee hours' });
+    }
+  }
+);
+
+/**
+ * GET /api/time/period-summary
+ * Get aggregated summary of all hours for a pay period across all employees and projects
+ * Query params: startDate, endDate
+ */
+router.get(
+  '/period-summary',
+  authMiddleware,
+  requireSupervisorOrBoss,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { startDate, endDate } = req.query;
+
+      if (!startDate || !endDate) {
+        res.status(400).json({ error: 'startDate and endDate are required' });
+        return;
+      }
+
+      // Import query function from database service
+      const { query } = await import('../services/database');
+
+      // Query aggregated data by project
+      const projectResult = await query<{
+        project_id: string | null;
+        project_name: string | null;
+        total_regular_hours: number;
+        total_ot_hours: number;
+        total_dt_hours: number;
+      }>(
+        `SELECT 
+          dr.project_id,
+          p.name as project_name,
+          SUM(rll.regular_hours) as total_regular_hours,
+          SUM(rll.ot_hours) as total_ot_hours,
+          SUM(rll.dt_hours) as total_dt_hours
+         FROM report_labor_lines rll
+         INNER JOIN daily_reports dr ON rll.report_id = dr.id
+         LEFT JOIN projects p ON dr.project_id = p.id
+         WHERE dr.report_date >= $1 
+           AND dr.report_date <= $2
+           AND dr.status = 'submitted'
+         GROUP BY dr.project_id, p.name
+         ORDER BY p.name`,
+        [startDate as string, endDate as string]
+      );
+
+      // For each project, get the list of employees who worked on it
+      const projects = [];
+      let totalRegularHours = 0;
+      let totalOtHours = 0;
+      let totalDtHours = 0;
+      const employeeSet = new Set<string>();
+
+      for (const projectRow of projectResult.rows) {
+        // Get employees for this project
+        let employeeQuery: string;
+        let employeeParams: (string | null)[];
+
+        if (projectRow.project_id) {
+          employeeQuery = `SELECT 
+            e.id as employee_id,
+            e.name as employee_name,
+            SUM(rll.regular_hours + rll.ot_hours + rll.dt_hours) as total_hours
+           FROM report_labor_lines rll
+           INNER JOIN daily_reports dr ON rll.report_id = dr.id
+           INNER JOIN employees e ON rll.employee_id = e.id
+           WHERE dr.project_id = $1
+             AND dr.report_date >= $2 
+             AND dr.report_date <= $3
+             AND dr.status = 'submitted'
+           GROUP BY e.id, e.name
+           ORDER BY e.name`;
+          employeeParams = [projectRow.project_id, startDate as string, endDate as string];
+        } else {
+          employeeQuery = `SELECT 
+            e.id as employee_id,
+            e.name as employee_name,
+            SUM(rll.regular_hours + rll.ot_hours + rll.dt_hours) as total_hours
+           FROM report_labor_lines rll
+           INNER JOIN daily_reports dr ON rll.report_id = dr.id
+           INNER JOIN employees e ON rll.employee_id = e.id
+           WHERE dr.project_id IS NULL
+             AND dr.report_date >= $1 
+             AND dr.report_date <= $2
+             AND dr.status = 'submitted'
+           GROUP BY e.id, e.name
+           ORDER BY e.name`;
+          employeeParams = [startDate as string, endDate as string];
+        }
+
+        const employeeResult = await query<{
+          employee_id: string;
+          employee_name: string;
+          total_hours: number;
+        }>(employeeQuery, employeeParams);
+
+        const employees = employeeResult.rows.map(emp => {
+          employeeSet.add(emp.employee_id);
+          return {
+            employeeId: emp.employee_id,
+            employeeName: emp.employee_name,
+            totalHours: Math.round((emp.total_hours || 0) * 100) / 100,
+          };
+        });
+
+        const regularHours = projectRow.total_regular_hours || 0;
+        const otHours = projectRow.total_ot_hours || 0;
+        const dtHours = projectRow.total_dt_hours || 0;
+        const projectTotalHours = regularHours + otHours + dtHours;
+
+        totalRegularHours += regularHours;
+        totalOtHours += otHours;
+        totalDtHours += dtHours;
+
+        projects.push({
+          projectId: projectRow.project_id,
+          projectName: projectRow.project_name,
+          totalRegularHours: Math.round(regularHours * 100) / 100,
+          totalOtHours: Math.round(otHours * 100) / 100,
+          totalDtHours: Math.round(dtHours * 100) / 100,
+          totalHours: Math.round(projectTotalHours * 100) / 100,
+          employees,
+        });
+      }
+
+      const grandTotalHours = totalRegularHours + totalOtHours + totalDtHours;
+
+      res.json({
+        periodStart: startDate,
+        periodEnd: endDate,
+        projects,
+        totalRegularHours: Math.round(totalRegularHours * 100) / 100,
+        totalOtHours: Math.round(totalOtHours * 100) / 100,
+        totalDtHours: Math.round(totalDtHours * 100) / 100,
+        grandTotalHours: Math.round(grandTotalHours * 100) / 100,
+        totalEmployees: employeeSet.size,
+      });
+    } catch (error) {
+      console.error('Error fetching period summary:', error);
+      res.status(500).json({ error: 'Failed to fetch period summary' });
     }
   }
 );
