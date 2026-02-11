@@ -889,6 +889,8 @@ export async function batchUpdateExcelRanges(
                 }));
                 if (maxRetryAfter > 0) {
                   delayMs = maxRetryAfter * 1000; // Convert seconds to milliseconds
+                } else {
+                  console.warn(`Retry-After header present but failed to parse, using exponential backoff: ${retryAfterValues.join(', ')}`);
                 }
               }
               
