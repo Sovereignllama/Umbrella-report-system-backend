@@ -156,9 +156,9 @@ function buildTrackerCellUpdates(
     
     for (let i = 0; i < Math.min(laborLines.length, MAX_CREW_ROWS); i++) {
       const line = laborLines[i];
-      const totalHours = parseFloat(String(line.regularHours || 0)) + 
-                        parseFloat(String(line.otHours || 0)) + 
-                        parseFloat(String(line.dtHours || 0));
+      const totalHours = (Number(line.regularHours) || 0) + 
+                        (Number(line.otHours) || 0) + 
+                        (Number(line.dtHours) || 0);
       
       crewData.push([
         line.employeeName || '',       // Column B

@@ -674,6 +674,13 @@ export async function readJsonFileByPath<T = any>(filePath: string): Promise<T> 
 }
 
 /**
+ * Build Graph API URL for Excel workbook range operations
+ */
+function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: string): string {
+  return `/drives/${SHAREPOINT_DRIVE_ID}/items/${itemId}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(rangeAddress)}')`;
+}
+
+/**
  * Get file item ID by path (needed for Graph Workbooks API)
  */
 export async function getFileItemId(filePath: string): Promise<string | null> {
@@ -705,10 +712,8 @@ export async function readExcelRange(
 ): Promise<any[][]> {
   try {
     const client = await getGraphClient();
-    
-    const response = await client.get(
-      `/drives/${SHAREPOINT_DRIVE_ID}/items/${itemId}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(rangeAddress)}')`
-    );
+    const url = buildWorkbookRangeUrl(itemId, sheetName, rangeAddress);
+    const response = await client.get(url);
     
     return response.data.values || [];
   } catch (error) {
@@ -729,11 +734,8 @@ export async function updateExcelRange(
 ): Promise<void> {
   try {
     const client = await getGraphClient();
-    
-    await client.patch(
-      `/drives/${SHAREPOINT_DRIVE_ID}/items/${itemId}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(rangeAddress)}')`,
-      { values }
-    );
+    const url = buildWorkbookRangeUrl(itemId, sheetName, rangeAddress);
+    await client.patch(url, { values });
     
     clearSharePointCache();
   } catch (error) {
@@ -765,15 +767,24 @@ export async function batchUpdateExcelRanges(
       const batchRequests = batch.map((update, idx) => ({
         id: String(idx + 1),
         method: 'PATCH',
-        url: `/drives/${SHAREPOINT_DRIVE_ID}/items/${itemId}/workbook/worksheets('${encodeURIComponent(update.sheetName)}')/range(address='${encodeURIComponent(update.rangeAddress)}')`,
+        url: buildWorkbookRangeUrl(itemId, update.sheetName, update.rangeAddress),
         headers: { 'Content-Type': 'application/json' },
         body: { values: update.values }
       }));
       
       // Send batch request
-      await client.post('/$batch', {
+      const response = await client.post('/$batch', {
         requests: batchRequests
       });
+      
+      // Check for individual request failures
+      if (response.data.responses) {
+        const failures = response.data.responses.filter((r: any) => r.status >= 400);
+        if (failures.length > 0) {
+          console.error('Some batch requests failed:', failures);
+          throw new Error(`Batch update had ${failures.length} failures out of ${batch.length} requests`);
+        }
+      }
       
       console.log(`Batch update completed: ${batch.length} ranges updated`);
     }
