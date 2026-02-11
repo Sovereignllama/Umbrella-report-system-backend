@@ -686,14 +686,13 @@ export async function readJsonFileByPath<T = any>(filePath: string): Promise<T> 
  * Build Graph API URL for Excel workbook range operations
  */
 function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: string): string {
-  // Validate inputs to prevent potential injection issues
-  // Sheet names shouldn't contain quotes or special characters that could break the URL
+  // Sheet names shouldn't contain quotes that could break the URL
   if (sheetName.includes("'") || sheetName.includes('"')) {
-    throw new Error(`Invalid sheet name: ${sheetName}`);
+    throw new Error(`Sheet name cannot contain quote characters: ${sheetName}`);
   }
   // Range addresses should follow Excel format (e.g., A1, B2:C10)
   if (!/^[A-Z]+\d+(:[A-Z]+\d+)?$/i.test(rangeAddress)) {
-    throw new Error(`Invalid range address: ${rangeAddress}`);
+    throw new Error(`Invalid Excel range address format (expected A1 or A1:B2): ${rangeAddress}`);
   }
   
   // For Graph Workbooks API, sheet names and range addresses are passed as string parameters
@@ -738,8 +737,9 @@ export async function readExcelRange(
     
     return response.data.values || [];
   } catch (error) {
-    console.error(`Failed to read Excel range ${rangeAddress} from sheet "${sheetName}":`, error);
-    throw new Error(`Failed to read Excel range: ${rangeAddress}`);
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`Failed to read range ${rangeAddress} from sheet '${sheetName}':`, error);
+    throw new Error(`Failed to read Excel range ${rangeAddress} from sheet '${sheetName}': ${errorMsg}`);
   }
 }
 
@@ -760,8 +760,9 @@ export async function updateExcelRange(
     
     clearSharePointCache();
   } catch (error) {
-    console.error(`Failed to update Excel range ${rangeAddress} in sheet "${sheetName}":`, error);
-    throw new Error(`Failed to update Excel range: ${rangeAddress}`);
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`Failed to update range ${rangeAddress} in sheet '${sheetName}':`, error);
+    throw new Error(`Failed to update Excel range ${rangeAddress} in sheet '${sheetName}': ${errorMsg}`);
   }
 }
 
@@ -791,10 +792,10 @@ export async function batchUpdateExcelRanges(
       // Pre-validate all sheet names and range addresses in this batch
       for (const update of batch) {
         if (update.sheetName.includes("'") || update.sheetName.includes('"')) {
-          throw new Error(`Invalid sheet name: ${update.sheetName}`);
+          throw new Error(`Sheet name cannot contain quote characters: ${update.sheetName}`);
         }
         if (!/^[A-Z]+\d+(:[A-Z]+\d+)?$/i.test(update.rangeAddress)) {
-          throw new Error(`Invalid range address: ${update.rangeAddress}`);
+          throw new Error(`Invalid Excel range address format (expected A1 or A1:B2): ${update.rangeAddress}`);
         }
       }
       

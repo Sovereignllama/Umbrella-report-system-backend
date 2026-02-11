@@ -16,7 +16,7 @@ const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const MAX_CREW_ROWS = 12; // Maximum crew members per project block
 const MAX_SHEET_ROWS = 200; // Safety limit for scanning rows
 const PROJECT_BLOCK_SIZE = 18; // 16 rows for project + 2-row gap
-const SHAREPOINT_PROCESSING_DELAY_MS = 2000; // Wait time after uploading template before Workbooks API calls
+const SHAREPOINT_PROCESSING_DELAY_MS = 2000; // SharePoint file processing delay to ensure Workbooks API readiness after template upload
 
 /**
  * Load tracker template from SharePoint (root config folder, not client-specific)
@@ -98,7 +98,7 @@ async function findNextProjectBlock(itemId: string, sheetName: string): Promise<
     } catch (error: any) {
       // Only treat 404 errors as empty cells; propagate other errors
       if (error.response?.status === 404 || error.message?.includes('not found')) {
-        console.log(`Cell ${checkCell} not found, assuming empty`);
+        console.log(`No existing project at row ${currentRow}, using as next available block`);
         return currentRow;
       }
       // For other errors (network, permission, etc.), log and propagate
