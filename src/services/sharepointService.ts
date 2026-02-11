@@ -781,14 +781,27 @@ export async function batchUpdateExcelRanges(
     const client = await getGraphClient();
     const BATCH_SIZE = 20;
     
+    // Pre-validate itemId once
+    const encodedItemId = encodeURIComponent(itemId);
+    
     // Process updates in batches
     for (let i = 0; i < updates.length; i += BATCH_SIZE) {
       const batch = updates.slice(i, i + BATCH_SIZE);
       
+      // Pre-validate all sheet names and range addresses in this batch
+      for (const update of batch) {
+        if (update.sheetName.includes("'") || update.sheetName.includes('"')) {
+          throw new Error(`Invalid sheet name: ${update.sheetName}`);
+        }
+        if (!/^[A-Z]+\d+(:[A-Z]+\d+)?$/i.test(update.rangeAddress)) {
+          throw new Error(`Invalid range address: ${update.rangeAddress}`);
+        }
+      }
+      
       const batchRequests = batch.map((update, idx) => ({
         id: String(idx + 1),
         method: 'PATCH',
-        url: buildWorkbookRangeUrl(itemId, update.sheetName, update.rangeAddress),
+        url: `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodedItemId}/workbook/worksheets('${update.sheetName}')/range(address='${update.rangeAddress}')`,
         headers: { 'Content-Type': 'application/json' },
         body: { values: update.values }
       }));
