@@ -683,17 +683,31 @@ export async function readJsonFileByPath<T = any>(filePath: string): Promise<T> 
 }
 
 /**
- * Build Graph API URL for Excel workbook range operations
+ * Validate sheet name for Graph API safety
  */
-function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: string): string {
-  // Sheet names shouldn't contain quotes that could break the URL
+function validateSheetName(sheetName: string): void {
   if (sheetName.includes("'") || sheetName.includes('"')) {
     throw new Error(`Sheet name cannot contain quote characters: ${sheetName}`);
   }
+}
+
+/**
+ * Validate Excel range address format
+ */
+function validateRangeAddress(rangeAddress: string): void {
   // Range addresses should follow Excel format (e.g., A1, B2:C10)
   if (!/^[A-Z]+\d+(:[A-Z]+\d+)?$/i.test(rangeAddress)) {
     throw new Error(`Invalid Excel range address format (expected A1 or A1:B2): ${rangeAddress}`);
   }
+}
+
+/**
+ * Build Graph API URL for Excel workbook range operations
+ */
+function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: string): string {
+  // Validate inputs to prevent potential injection issues
+  validateSheetName(sheetName);
+  validateRangeAddress(rangeAddress);
   
   // For Graph Workbooks API, sheet names and range addresses are passed as string parameters
   // within the function syntax - they should not be URL-encoded
@@ -791,12 +805,8 @@ export async function batchUpdateExcelRanges(
       
       // Pre-validate all sheet names and range addresses in this batch
       for (const update of batch) {
-        if (update.sheetName.includes("'") || update.sheetName.includes('"')) {
-          throw new Error(`Sheet name cannot contain quote characters: ${update.sheetName}`);
-        }
-        if (!/^[A-Z]+\d+(:[A-Z]+\d+)?$/i.test(update.rangeAddress)) {
-          throw new Error(`Invalid Excel range address format (expected A1 or A1:B2): ${update.rangeAddress}`);
-        }
+        validateSheetName(update.sheetName);
+        validateRangeAddress(update.rangeAddress);
       }
       
       const batchRequests = batch.map((update, idx) => ({
@@ -816,13 +826,12 @@ export async function batchUpdateExcelRanges(
       if (response.data.responses) {
         const failures = response.data.responses.filter(r => r.status >= 400);
         if (failures.length > 0) {
-          const failureDetails = failures.map(f => ({ 
-            id: f.id, 
-            status: f.status, 
-            error: f.body 
-          }));
-          console.error('Batch request failures:', failureDetails);
-          throw new Error(`Batch update had ${failures.length} failures out of ${batch.length} requests: ${JSON.stringify(failureDetails)}`);
+          const failureDetails = failures.map(f => {
+            const errorBody = f.body?.error?.message || JSON.stringify(f.body);
+            return `  Request #${f.id}: HTTP ${f.status} - ${errorBody}`;
+          }).join('\n');
+          console.error('Batch request failures:\n' + failureDetails);
+          throw new Error(`Batch update had ${failures.length} failures out of ${batch.length} requests:\n${failureDetails}`);
         }
       }
       

@@ -97,7 +97,7 @@ async function findNextProjectBlock(itemId: string, sheetName: string): Promise<
       }
     } catch (error: any) {
       // Only treat 404 errors as empty cells; propagate other errors
-      if (error.response?.status === 404 || error.message?.includes('not found')) {
+      if (error.response?.status === 404) {
         console.log(`No existing project at row ${currentRow}, using as next available block`);
         return currentRow;
       }
