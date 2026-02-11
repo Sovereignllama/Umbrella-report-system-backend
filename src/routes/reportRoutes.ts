@@ -27,9 +27,7 @@ import {
   uploadPhotoToSharePoint,
 } from '../services/dfaService';
 import {
-  generateOrUpdateTrackerExcel,
-  uploadTrackerToSharePoint,
-  downloadExistingTracker,
+  generateAndUploadTracker,
 } from '../services/trackerService';
 
 // Configure multer for memory storage (files stored in memory as Buffer)
@@ -310,14 +308,8 @@ router.post(
           // Generate and upload Tracker Excel (separate try-catch so it doesn't block on DFA errors)
           try {
             console.log('Generating Tracker Excel...');
-            const existingTracker = await downloadExistingTracker(weekFolder);
-            const { buffer: trackerBuffer, fileName: trackerFileName } = await generateOrUpdateTrackerExcel(
-              newReport,
-              supervisorName,
-              existingTracker
-            );
-            await uploadTrackerToSharePoint(weekFolder, trackerBuffer, trackerFileName);
-            console.log(`Tracker uploaded for week: ${weekFolder}`);
+            await generateAndUploadTracker(newReport, supervisorName, weekFolder);
+            console.log(`Tracker updated for week: ${weekFolder}`);
           } catch (trackerError) {
             console.error('Error generating/uploading Tracker:', trackerError);
             console.error('Tracker Error details:', trackerError instanceof Error ? trackerError.message : String(trackerError));

@@ -672,3 +672,115 @@ export async function readJsonFileByPath<T = any>(filePath: string): Promise<T> 
   const content = buffer.toString('utf-8');
   return JSON.parse(content);
 }
+
+/**
+ * Get file item ID by path (needed for Graph Workbooks API)
+ */
+export async function getFileItemId(filePath: string): Promise<string | null> {
+  try {
+    const client = await getGraphClient();
+    const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+    
+    const response = await client.get<SharePointDriveItem>(
+      `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}`
+    );
+    
+    return response.data.id;
+  } catch (error: any) {
+    if (error.response?.status === 404) {
+      return null;
+    }
+    console.error(`Failed to get file item ID for "${filePath}":`, error);
+    throw error;
+  }
+}
+
+/**
+ * Read a range of cells from an Excel workbook via Graph Workbooks API
+ */
+export async function readExcelRange(
+  itemId: string,
+  sheetName: string,
+  rangeAddress: string
+): Promise<any[][]> {
+  try {
+    const client = await getGraphClient();
+    
+    const response = await client.get(
+      `/drives/${SHAREPOINT_DRIVE_ID}/items/${itemId}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(rangeAddress)}')`
+    );
+    
+    return response.data.values || [];
+  } catch (error) {
+    console.error(`Failed to read Excel range ${rangeAddress} from sheet "${sheetName}":`, error);
+    throw new Error(`Failed to read Excel range: ${rangeAddress}`);
+  }
+}
+
+/**
+ * Update a range of cells in an Excel workbook via Graph Workbooks API
+ * This does NOT replace the file — it only updates the specified cells
+ */
+export async function updateExcelRange(
+  itemId: string,
+  sheetName: string,
+  rangeAddress: string,
+  values: any[][]
+): Promise<void> {
+  try {
+    const client = await getGraphClient();
+    
+    await client.patch(
+      `/drives/${SHAREPOINT_DRIVE_ID}/items/${itemId}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(rangeAddress)}')`,
+      { values }
+    );
+    
+    clearSharePointCache();
+  } catch (error) {
+    console.error(`Failed to update Excel range ${rangeAddress} in sheet "${sheetName}":`, error);
+    throw new Error(`Failed to update Excel range: ${rangeAddress}`);
+  }
+}
+
+/**
+ * Batch update multiple ranges in an Excel workbook
+ * Groups updates into batches of up to 20 requests each
+ */
+export async function batchUpdateExcelRanges(
+  itemId: string,
+  updates: Array<{
+    sheetName: string;
+    rangeAddress: string;
+    values: any[][];
+  }>
+): Promise<void> {
+  try {
+    const client = await getGraphClient();
+    const BATCH_SIZE = 20;
+    
+    // Process updates in batches
+    for (let i = 0; i < updates.length; i += BATCH_SIZE) {
+      const batch = updates.slice(i, i + BATCH_SIZE);
+      
+      const batchRequests = batch.map((update, idx) => ({
+        id: String(idx + 1),
+        method: 'PATCH',
+        url: `/drives/${SHAREPOINT_DRIVE_ID}/items/${itemId}/workbook/worksheets('${encodeURIComponent(update.sheetName)}')/range(address='${encodeURIComponent(update.rangeAddress)}')`,
+        headers: { 'Content-Type': 'application/json' },
+        body: { values: update.values }
+      }));
+      
+      // Send batch request
+      await client.post('/$batch', {
+        requests: batchRequests
+      });
+      
+      console.log(`Batch update completed: ${batch.length} ranges updated`);
+    }
+    
+    clearSharePointCache();
+  } catch (error) {
+    console.error('Failed to batch update Excel ranges:', error);
+    throw new Error('Failed to batch update Excel ranges');
+  }
+}
