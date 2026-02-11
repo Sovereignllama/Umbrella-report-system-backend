@@ -39,6 +39,7 @@ interface GraphBatchResponse {
   responses: Array<{
     id: string;
     status: number;
+    headers?: Record<string, string>;
     body?: any;
   }>;
 }
@@ -812,7 +813,7 @@ export async function batchUpdateExcelRanges(
       }
       
       // Build batch requests using the same URL construction as buildWorkbookRangeUrl
-      const batchRequests = batch.map((update, idx) => {
+      let batchRequests = batch.map((update, idx) => {
         const sheetUrl = `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodedItemId}/workbook/worksheets('${update.sheetName}')/range(address='${update.rangeAddress}')`;
         return {
           id: String(idx + 1),
@@ -823,22 +824,99 @@ export async function batchUpdateExcelRanges(
         };
       });
       
-      // Send batch request
-      const response = await client.post<GraphBatchResponse>('/$batch', {
-        requests: batchRequests
-      });
+      // Retry configuration
+      const MAX_RETRIES = 3;
+      const BASE_DELAY_MS = 2000; // Start with 2 seconds
+      let retryCount = 0;
+      let requestsToSend = batchRequests;
+      const succeededIds = new Set<string>();
       
-      // Check for individual request failures
-      if (response.data.responses) {
-        const failures = response.data.responses.filter(r => r.status >= 400);
-        if (failures.length > 0) {
-          const failureDetails = failures.map(f => {
-            const errorBody = f.body?.error?.message || JSON.stringify(f.body);
-            return `  Request #${f.id}: HTTP ${f.status} - ${errorBody}`;
-          }).join('\n');
-          console.error('Batch request failures:\n' + failureDetails);
-          throw new Error(`Batch update had ${failures.length} failures out of ${batch.length} requests:\n${failureDetails}`);
+      while (true) {
+        // Send batch request
+        const response = await client.post<GraphBatchResponse>('/$batch', {
+          requests: requestsToSend
+        });
+        
+        // Check for individual request failures
+        if (response.data.responses) {
+          // Track successful requests
+          const successes = response.data.responses.filter(r => r.status >= 200 && r.status < 400);
+          successes.forEach(s => succeededIds.add(s.id));
+          
+          const failures = response.data.responses.filter(r => r.status >= 400);
+          
+          if (failures.length > 0) {
+            // Separate retryable (429, 503) from non-retryable failures
+            const retryableFailures = failures.filter(f => f.status === 429 || f.status === 503);
+            const nonRetryableFailures = failures.filter(f => f.status !== 429 && f.status !== 503);
+            
+            // If there are non-retryable failures, fail immediately
+            if (nonRetryableFailures.length > 0) {
+              const failureDetails = nonRetryableFailures.map(f => {
+                const errorBody = f.body?.error?.message || JSON.stringify(f.body);
+                return `  Request #${f.id}: HTTP ${f.status} - ${errorBody}`;
+              }).join('\n');
+              console.error('Batch request failures:\n' + failureDetails);
+              throw new Error(`Batch update had ${nonRetryableFailures.length} non-retryable failures:\n${failureDetails}`);
+            }
+            
+            // Handle retryable failures
+            if (retryableFailures.length > 0) {
+              if (retryCount >= MAX_RETRIES) {
+                // Exhausted retries
+                const failureDetails = retryableFailures.map(f => {
+                  const errorBody = f.body?.error?.message || JSON.stringify(f.body);
+                  return `  Request #${f.id}: HTTP ${f.status} - ${errorBody}`;
+                }).join('\n');
+                console.error(`Batch request failures after ${retryCount} retries:\n` + failureDetails);
+                throw new Error(`Batch update had ${retryableFailures.length} failures after ${retryCount} retries:\n${failureDetails}`);
+              }
+              
+              // Extract Retry-After header if present
+              let delayMs = BASE_DELAY_MS * Math.pow(2, retryCount);
+              const retryAfterValues = retryableFailures
+                .map(f => {
+                  const headers = f.headers || {};
+                  return headers['Retry-After'] || headers['retry-after'];
+                })
+                .filter(v => v !== undefined);
+              
+              if (retryAfterValues.length > 0) {
+                // Use the maximum Retry-After value if multiple are present
+                const maxRetryAfter = Math.max(...retryAfterValues.map(v => {
+                  const parsed = parseInt(v, 10);
+                  return isNaN(parsed) ? 0 : parsed;
+                }));
+                if (maxRetryAfter > 0) {
+                  delayMs = maxRetryAfter * 1000; // Convert seconds to milliseconds
+                } else {
+                  console.warn(`Retry-After header present but failed to parse, using exponential backoff: ${retryAfterValues.join(', ')}`);
+                }
+              }
+              
+              retryCount++;
+              console.warn(`Retrying ${retryableFailures.length} failed requests (attempt ${retryCount}/${MAX_RETRIES}) after ${delayMs}ms delay`);
+              
+              // Wait before retrying
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+              
+              // Rebuild batch with only the failed requests
+              const failedIds = new Set(retryableFailures.map(f => f.id));
+              requestsToSend = batchRequests.filter(req => failedIds.has(req.id));
+              
+              continue; // Retry the loop
+            }
+          }
         }
+        
+        // Success - all requests completed
+        // Verify all original requests have been processed successfully
+        if (succeededIds.size === batchRequests.length) {
+          break;
+        }
+        
+        // Safety check: if we get here with incomplete successes but no failures to retry, something is wrong
+        throw new Error(`Unexpected state: ${succeededIds.size} successes out of ${batchRequests.length} requests, but no failures to retry`);
       }
       
       console.log(`Batch update completed: ${batch.length} ranges updated`);
