@@ -202,7 +202,7 @@ function buildTrackerCellUpdates(
       
       equipmentData.push([
         line.equipmentName || '',       // Column K
-        line.hoursUsed                  // Column L
+        line.hoursUsed || 0             // Column L
       ]);
     }
     
