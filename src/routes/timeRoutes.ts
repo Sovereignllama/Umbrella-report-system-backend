@@ -660,7 +660,7 @@ router.get(
       // Query labor lines joined with daily reports and projects
       // Match by either employee_id (UUID) or employee_name (string)
       const laborResult = await query<{
-        reportDate: string;
+        reportDate: string | Date;
         projectId: string | null;
         projectName: string | null;
         regularHours: number;
@@ -707,7 +707,9 @@ router.get(
       const dateMap = new Map<string, DateData>();
 
       for (const row of laborResult.rows) {
-        const dateKey = row.reportDate;
+        const dateKey = typeof row.reportDate === 'string' 
+          ? row.reportDate 
+          : new Date(row.reportDate).toISOString().split('T')[0];
         if (!dateMap.has(dateKey)) {
           dateMap.set(dateKey, {
             date: dateKey,
