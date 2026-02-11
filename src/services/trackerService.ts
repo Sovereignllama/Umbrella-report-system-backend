@@ -16,7 +16,18 @@ const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const MAX_CREW_ROWS = 12; // Maximum crew members per project block
 const MAX_SHEET_ROWS = 200; // Safety limit for scanning rows
 const PROJECT_BLOCK_SIZE = 18; // 16 rows for project + 2-row gap
-const SHAREPOINT_PROCESSING_DELAY_MS = 2000; // SharePoint file processing delay to ensure Workbooks API readiness after template upload
+// SharePoint file processing delay to ensure Workbooks API readiness after template upload
+// This delay allows SharePoint to fully index and process the Excel file before making Workbooks API calls
+const SHAREPOINT_PROCESSING_DELAY_MS = 2000; // 2 seconds based on empirical testing
+
+/**
+ * Calculate total hours from regular, OT, and DT hours
+ */
+function calculateTotalHours(line: ReportLaborLine): number {
+  return (Number(line.regularHours) || 0) + 
+         (Number(line.otHours) || 0) + 
+         (Number(line.dtHours) || 0);
+}
 
 /**
  * Load tracker template from SharePoint (root config folder, not client-specific)
@@ -162,9 +173,7 @@ function buildTrackerCellUpdates(
     
     for (let i = 0; i < Math.min(laborLines.length, MAX_CREW_ROWS); i++) {
       const line = laborLines[i];
-      const totalHours = (Number(line.regularHours) || 0) + 
-                        (Number(line.otHours) || 0) + 
-                        (Number(line.dtHours) || 0);
+      const totalHours = calculateTotalHours(line);
       
       crewData.push([
         line.employeeName || '',       // Column B

@@ -31,6 +31,9 @@ interface CacheEntry<T> {
   expiry: number;
 }
 
+// Graph API batch request limit - Microsoft Graph supports up to 20 requests per batch
+const GRAPH_BATCH_SIZE = 20;
+
 // Interface for Graph API batch response
 interface GraphBatchResponse {
   responses: Array<{
@@ -794,14 +797,13 @@ export async function batchUpdateExcelRanges(
 ): Promise<void> {
   try {
     const client = await getGraphClient();
-    const BATCH_SIZE = 20;
     
     // Pre-validate itemId once
     const encodedItemId = encodeURIComponent(itemId);
     
     // Process updates in batches
-    for (let i = 0; i < updates.length; i += BATCH_SIZE) {
-      const batch = updates.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < updates.length; i += GRAPH_BATCH_SIZE) {
+      const batch = updates.slice(i, i + GRAPH_BATCH_SIZE);
       
       // Pre-validate all sheet names and range addresses in this batch
       for (const update of batch) {
@@ -809,13 +811,17 @@ export async function batchUpdateExcelRanges(
         validateRangeAddress(update.rangeAddress);
       }
       
-      const batchRequests = batch.map((update, idx) => ({
-        id: String(idx + 1),
-        method: 'PATCH',
-        url: `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodedItemId}/workbook/worksheets('${update.sheetName}')/range(address='${update.rangeAddress}')`,
-        headers: { 'Content-Type': 'application/json' },
-        body: { values: update.values }
-      }));
+      // Build batch requests using the same URL construction as buildWorkbookRangeUrl
+      const batchRequests = batch.map((update, idx) => {
+        const sheetUrl = `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodedItemId}/workbook/worksheets('${update.sheetName}')/range(address='${update.rangeAddress}')`;
+        return {
+          id: String(idx + 1),
+          method: 'PATCH',
+          url: sheetUrl,
+          headers: { 'Content-Type': 'application/json' },
+          body: { values: update.values }
+        };
+      });
       
       // Send batch request
       const response = await client.post<GraphBatchResponse>('/$batch', {
