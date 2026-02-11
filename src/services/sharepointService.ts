@@ -31,6 +31,18 @@ interface CacheEntry<T> {
   expiry: number;
 }
 
+// Graph API batch request limit - Microsoft Graph supports up to 20 requests per batch
+const GRAPH_BATCH_SIZE = 20;
+
+// Interface for Graph API batch response
+interface GraphBatchResponse {
+  responses: Array<{
+    id: string;
+    status: number;
+    body?: any;
+  }>;
+}
+
 const sharepointCache = new Map<string, CacheEntry<any>>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -671,4 +683,171 @@ export async function readJsonFileByPath<T = any>(filePath: string): Promise<T> 
   const buffer = await readFileByPath(filePath);
   const content = buffer.toString('utf-8');
   return JSON.parse(content);
+}
+
+/**
+ * Validate sheet name for Graph API safety
+ */
+function validateSheetName(sheetName: string): void {
+  if (sheetName.includes("'") || sheetName.includes('"')) {
+    throw new Error(`Sheet name cannot contain quote characters: ${sheetName}`);
+  }
+}
+
+/**
+ * Validate Excel range address format
+ */
+function validateRangeAddress(rangeAddress: string): void {
+  // Range addresses should follow Excel format (e.g., A1, B2:C10)
+  if (!/^[A-Z]+\d+(:[A-Z]+\d+)?$/i.test(rangeAddress)) {
+    throw new Error(`Invalid Excel range address format (expected A1 or A1:B2): ${rangeAddress}`);
+  }
+}
+
+/**
+ * Build Graph API URL for Excel workbook range operations
+ */
+function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: string): string {
+  // Validate inputs to prevent potential injection issues
+  validateSheetName(sheetName);
+  validateRangeAddress(rangeAddress);
+  
+  // For Graph Workbooks API, sheet names and range addresses are passed as string parameters
+  // within the function syntax - they should not be URL-encoded
+  return `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodeURIComponent(itemId)}/workbook/worksheets('${sheetName}')/range(address='${rangeAddress}')`;
+}
+
+/**
+ * Get file item ID by path (needed for Graph Workbooks API)
+ */
+export async function getFileItemId(filePath: string): Promise<string | null> {
+  try {
+    const client = await getGraphClient();
+    const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+    
+    const response = await client.get<SharePointDriveItem>(
+      `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}`
+    );
+    
+    return response.data.id;
+  } catch (error: any) {
+    if (error.response?.status === 404) {
+      return null;
+    }
+    console.error(`Failed to get file item ID for "${filePath}":`, error);
+    throw error;
+  }
+}
+
+/**
+ * Read a range of cells from an Excel workbook via Graph Workbooks API
+ */
+export async function readExcelRange(
+  itemId: string,
+  sheetName: string,
+  rangeAddress: string
+): Promise<any[][]> {
+  try {
+    const client = await getGraphClient();
+    const url = buildWorkbookRangeUrl(itemId, sheetName, rangeAddress);
+    const response = await client.get(url);
+    
+    return response.data.values || [];
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`Failed to read range ${rangeAddress} from sheet '${sheetName}':`, error);
+    throw new Error(`Failed to read Excel range ${rangeAddress} from sheet '${sheetName}': ${errorMsg}`);
+  }
+}
+
+/**
+ * Update a range of cells in an Excel workbook via Graph Workbooks API
+ * This does NOT replace the file — it only updates the specified cells
+ */
+export async function updateExcelRange(
+  itemId: string,
+  sheetName: string,
+  rangeAddress: string,
+  values: any[][]
+): Promise<void> {
+  try {
+    const client = await getGraphClient();
+    const url = buildWorkbookRangeUrl(itemId, sheetName, rangeAddress);
+    await client.patch(url, { values });
+    
+    clearSharePointCache();
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`Failed to update range ${rangeAddress} in sheet '${sheetName}':`, error);
+    throw new Error(`Failed to update Excel range ${rangeAddress} in sheet '${sheetName}': ${errorMsg}`);
+  }
+}
+
+/**
+ * Batch update multiple ranges in an Excel workbook
+ * Groups updates into batches of up to 20 requests each
+ */
+export async function batchUpdateExcelRanges(
+  itemId: string,
+  updates: Array<{
+    sheetName: string;
+    rangeAddress: string;
+    values: any[][];
+  }>
+): Promise<void> {
+  try {
+    const client = await getGraphClient();
+    
+    // Pre-validate itemId once
+    const encodedItemId = encodeURIComponent(itemId);
+    
+    // Process updates in batches
+    for (let i = 0; i < updates.length; i += GRAPH_BATCH_SIZE) {
+      const batch = updates.slice(i, i + GRAPH_BATCH_SIZE);
+      
+      // Pre-validate all sheet names and range addresses in this batch
+      for (const update of batch) {
+        validateSheetName(update.sheetName);
+        validateRangeAddress(update.rangeAddress);
+      }
+      
+      // Build batch requests using the same URL construction as buildWorkbookRangeUrl
+      const batchRequests = batch.map((update, idx) => {
+        const sheetUrl = `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodedItemId}/workbook/worksheets('${update.sheetName}')/range(address='${update.rangeAddress}')`;
+        return {
+          id: String(idx + 1),
+          method: 'PATCH',
+          url: sheetUrl,
+          headers: { 'Content-Type': 'application/json' },
+          body: { values: update.values }
+        };
+      });
+      
+      // Send batch request
+      const response = await client.post<GraphBatchResponse>('/$batch', {
+        requests: batchRequests
+      });
+      
+      // Check for individual request failures
+      if (response.data.responses) {
+        const failures = response.data.responses.filter(r => r.status >= 400);
+        if (failures.length > 0) {
+          const failureDetails = failures.map(f => {
+            const errorBody = f.body?.error?.message || JSON.stringify(f.body);
+            return `  Request #${f.id}: HTTP ${f.status} - ${errorBody}`;
+          }).join('\n');
+          console.error('Batch request failures:\n' + failureDetails);
+          throw new Error(`Batch update had ${failures.length} failures out of ${batch.length} requests:\n${failureDetails}`);
+        }
+      }
+      
+      console.log(`Batch update completed: ${batch.length} ranges updated`);
+    }
+    
+    clearSharePointCache();
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Failed to batch update Excel ranges:', error);
+    throw new Error(`Failed to batch update Excel ranges: ${errorMessage}`);
+  }
 }

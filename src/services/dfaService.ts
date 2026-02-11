@@ -202,9 +202,10 @@ export async function generateDfaExcel(
   const equipmentLines = await ReportEquipmentLineRepository.findByReportId(report.id);
   
   // Parse report date as local date (not UTC)
-  // report.reportDate is like '2026-02-01' - parse the parts directly to avoid timezone shift
-  const dateStr = String(report.reportDate).split('T')[0]; // Handle both '2026-02-01' and '2026-02-01T...'
-  const [year, month, day] = dateStr.split('-').map(Number);
+  const reportDateObj = report.reportDate instanceof Date ? report.reportDate : new Date(report.reportDate);
+  const year = reportDateObj.getFullYear();
+  const month = reportDateObj.getMonth() + 1;
+  const day = reportDateObj.getDate();
   const reportDateLocal = new Date(year, month - 1, day); // month is 0-indexed
   
   // Format date for display in Excel (MM/DD/YYYY)
@@ -213,7 +214,7 @@ export async function generateDfaExcel(
   // Format date for filename (Jan 31, 2026)
   const formattedDateForFilename = formatDateForDfa(reportDateLocal);
   
-  console.log(`Report date: ${dateStr} -> Display: ${formattedDate}, Filename: ${formattedDateForFilename}`);
+  console.log(`Report date: ${reportDateObj.toISOString()} -> Display: ${formattedDate}, Filename: ${formattedDateForFilename}`);
   
   // Load workbook with xlsx-populate
   console.log('Loading workbook from template buffer...');
@@ -457,8 +458,10 @@ export async function generateAggregateReport(
     grandTotalEquipment += equipmentCost;
     
     // Parse report date without timezone shift
-    const dateStr = String(report.reportDate).split('T')[0];
-    const [year, month, day] = dateStr.split('-').map(Number);
+    const reportDateObj = report.reportDate instanceof Date ? report.reportDate : new Date(report.reportDate);
+    const year = reportDateObj.getFullYear();
+    const month = reportDateObj.getMonth() + 1;
+    const day = reportDateObj.getDate();
     const formattedDate = `${month}/${day}/${year}`;
     
     // Use sequential DFA number (1-based index)

@@ -1,18 +1,33 @@
-import XlsxPopulate from 'xlsx-populate';
-import { DailyReport } from '../types/database';
+import { DailyReport, ReportLaborLine } from '../types/database';
 import { ReportLaborLineRepository } from '../repositories';
-import { readFileByPath, listFilesInFolder, uploadFile, getOrCreateFolder } from './sharepointService';
+import { 
+  readFileByPath, 
+  listFilesInFolder, 
+  uploadFile, 
+  getOrCreateFolder,
+  getFileItemId,
+  readExcelRange,
+  batchUpdateExcelRanges
+} from './sharepointService';
 
-// Minimal interface for xlsx-populate Sheet type (library has no official types)
-interface XlsxSheet {
-  cell(address: string): any;
-  name(): string;
-}
+
 
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const MAX_CREW_ROWS = 12; // Maximum crew members per project block
 const MAX_SHEET_ROWS = 200; // Safety limit for scanning rows
 const PROJECT_BLOCK_SIZE = 18; // 16 rows for project + 2-row gap
+// SharePoint file processing delay to ensure Workbooks API readiness after template upload
+// This delay allows SharePoint to fully index and process the Excel file before making Workbooks API calls
+const SHAREPOINT_PROCESSING_DELAY_MS = 2000; // 2 seconds based on empirical testing
+
+/**
+ * Calculate total hours from regular, OT, and DT hours
+ */
+function calculateTotalHours(line: ReportLaborLine): number {
+  return (Number(line.regularHours) || 0) + 
+         (Number(line.otHours) || 0) + 
+         (Number(line.dtHours) || 0);
+}
 
 /**
  * Load tracker template from SharePoint (root config folder, not client-specific)
@@ -40,27 +55,38 @@ async function loadTrackerTemplateBuffer(): Promise<Buffer> {
 }
 
 /**
- * Get day of week index (0 = Monday, 6 = Sunday)
- */
-function getDaySheetIndex(reportDate: Date): number {
-  const day = reportDate.getDay();
-  // Convert JavaScript day (0=Sunday) to our index (0=Monday)
-  return day === 0 ? 6 : day - 1;
-}
-
-/**
  * Get day name for sheet selection
  */
-function getDayName(reportDate: Date): string {
+function getDaySheetName(reportDate: Date): string {
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  return days[getDaySheetIndex(reportDate)];
+  const day = reportDate.getDay();
+  // Convert JavaScript day (0=Sunday) to our index (0=Monday)
+  const index = day === 0 ? 6 : day - 1;
+  return days[index];
 }
 
 /**
- * Find the next available project block row in a sheet
+ * Format week folder name for file naming (replace spaces with underscores)
+ */
+function formatWeekName(weekFolder: string): string {
+  return weekFolder.replace(/\s+/g, '_');
+}
+
+/**
+ * Format date as MM/DD/YYYY (with zero-padding)
+ */
+function formatDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${month}/${day}/${year}`;
+}
+
+/**
+ * Find the next available project block in a sheet using Graph API
  * Returns the starting row number for the next project (where the date/header goes)
  */
-function findNextProjectBlock(sheet: XlsxSheet): number {
+async function findNextProjectBlock(itemId: string, sheetName: string): Promise<number> {
   // First project block starts at row 2
   // Each block is: header (2 rows) + project info (2 rows) + crew (12 rows) = 16 rows
   // Plus 2-row gap before next block
@@ -68,35 +94,109 @@ function findNextProjectBlock(sheet: XlsxSheet): number {
   
   let currentRow = 2;
   
-  while (true) {
+  while (currentRow <= MAX_SHEET_ROWS) {
     // Check if the project name cell (C + offset 2) is empty
-    const projectCell = sheet.cell(`C${currentRow + 2}`);
-    const projectValue = projectCell.value();
+    const checkCell = `C${currentRow + 2}`;
     
-    if (!projectValue || projectValue === null || projectValue === '') {
-      // Found an empty block
-      return currentRow;
+    try {
+      const values = await readExcelRange(itemId, sheetName, checkCell);
+      
+      // Check if cell is empty
+      if (!values || values.length === 0 || !values[0] || !values[0][0] || values[0][0] === '') {
+        // Found an empty block
+        return currentRow;
+      }
+    } catch (error: any) {
+      // Only treat 404 errors as empty cells; propagate other errors
+      if (error.response?.status === 404) {
+        console.log(`No existing project at row ${currentRow}, using as next available block`);
+        return currentRow;
+      }
+      // For other errors (network, permission, etc.), log and propagate
+      console.error(`Error reading cell ${checkCell}:`, error);
+      throw error;
     }
     
     // Move to next potential block
     currentRow += PROJECT_BLOCK_SIZE;
-    
-    // Safety check - don't go beyond max rows
-    if (currentRow > MAX_SHEET_ROWS) {
-      console.warn('Reached row limit while searching for empty project block');
-      return currentRow;
-    }
   }
+  
+  console.warn('Reached row limit while searching for empty project block');
+  return currentRow;
 }
 
 /**
- * Format date as MM/DD/YYYY
+ * Build cell updates for tracker from report data
  */
-function formatDate(date: Date): string {
-  // Use toISOString to get reliable date string, then parse
-  const dateStr = date.toISOString().split('T')[0];
-  const [year, month, day] = dateStr.split('-').map(Number);
-  return `${month}/${day}/${year}`;
+function buildTrackerCellUpdates(
+  report: DailyReport,
+  supervisorName: string,
+  laborLines: ReportLaborLine[],
+  sheetName: string,
+  startRow: number
+): Array<{ sheetName: string; rangeAddress: string; values: any[][] }> {
+  const updates: Array<{ sheetName: string; rangeAddress: string; values: any[][] }> = [];
+  
+  // Format report date
+  const reportDate = report.reportDate instanceof Date ? report.reportDate : new Date(report.reportDate);
+  const formattedDate = formatDate(reportDate);
+  
+  // Header section updates
+  updates.push({
+    sheetName,
+    rangeAddress: `C${startRow}`,
+    values: [[formattedDate]]
+  });
+  
+  updates.push({
+    sheetName,
+    rangeAddress: `F${startRow}`,
+    values: [[supervisorName]]
+  });
+  
+  updates.push({
+    sheetName,
+    rangeAddress: `C${startRow + 2}`,
+    values: [[report.projectName || '']]
+  });
+  
+  updates.push({
+    sheetName,
+    rangeAddress: `G${startRow + 2}`,
+    values: [[supervisorName]]
+  });
+  
+  // Crew section (rows startRow+4 to startRow+15)
+  if (laborLines.length > 0) {
+    const crewStartRow = startRow + 4;
+    const crewData: any[][] = [];
+    
+    for (let i = 0; i < Math.min(laborLines.length, MAX_CREW_ROWS); i++) {
+      const line = laborLines[i];
+      const totalHours = calculateTotalHours(line);
+      
+      crewData.push([
+        line.employeeName || '',       // Column B
+        line.startTime || '',           // Column C
+        line.endTime || '',             // Column D
+        totalHours,                     // Column E
+        line.skillName || '',           // Column F
+        line.workDescription || ''      // Column G
+      ]);
+    }
+    
+    // Batch update crew section as a single range if there are crew members
+    if (crewData.length > 0) {
+      const endRow = crewStartRow + crewData.length - 1;
+      updates.push({
+        sheetName,
+        rangeAddress: `B${crewStartRow}:G${endRow}`,
+        values: crewData
+      });
+    }
+  }
+  
+  return updates;
 }
 
 /**
@@ -131,150 +231,70 @@ export function getWeekFolderName(reportDate: Date): string {
 }
 
 /**
- * Download existing tracker for a week if it exists
+ * Generate and upload tracker using Microsoft Graph Workbooks API
+ * This function writes directly to cells without downloading/uploading the entire file
  */
-export async function downloadExistingTracker(weekFolder: string): Promise<Buffer | null> {
-  try {
-    const trackFolderPath = `Track/${weekFolder}`;
-    const files = await listFilesInFolder(trackFolderPath);
-    
-    // Find the tracker file (should have "tracker" in name and be .xlsx)
-    const trackerFile = files.find(f => 
-      f.name.toLowerCase().includes('tracker') && 
-      (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))
-    );
-    
-    if (!trackerFile) {
-      console.log(`No existing tracker found in ${trackFolderPath}`);
-      return null;
-    }
-    
-    console.log(`Downloading existing tracker: ${trackerFile.name}`);
-    const buffer = await readFileByPath(`${trackFolderPath}/${trackerFile.name}`);
-    console.log(`Existing tracker downloaded, size: ${buffer.length} bytes`);
-    
-    return buffer;
-  } catch (error: any) {
-    if (error.response?.status === 404) {
-      console.log(`Track folder not found for week: ${weekFolder}`);
-      return null;
-    }
-    console.error('Error downloading existing tracker:', error);
-    return null;
-  }
-}
-
-/**
- * Generate or update tracker Excel workbook
- */
-export async function generateOrUpdateTrackerExcel(
+export async function generateAndUploadTracker(
   report: DailyReport,
   supervisorName: string,
-  existingBuffer?: Buffer | null
-): Promise<{ buffer: Buffer; fileName: string }> {
-  // Load workbook (either existing or from template)
-  let workbook: any;
+  weekFolder: string
+): Promise<void> {
+  console.log(`Starting tracker update for report ${report.id}, week: ${weekFolder}`);
   
-  if (existingBuffer) {
-    console.log('Loading existing tracker workbook...');
-    workbook = await XlsxPopulate.fromDataAsync(existingBuffer);
-  } else {
-    console.log('Loading tracker template...');
+  // 1. Determine tracker file path and name
+  const trackerFileName = `Tracker_${formatWeekName(weekFolder)}.xlsx`;
+  const trackerPath = `Track/${weekFolder}/${trackerFileName}`;
+  
+  // 2. Check if tracker already exists in SharePoint
+  let itemId = await getFileItemId(trackerPath);
+  
+  // 3. If not, upload a fresh template
+  if (!itemId) {
+    console.log('Tracker does not exist, uploading fresh template...');
     const templateBuffer = await loadTrackerTemplateBuffer();
-    workbook = await XlsxPopulate.fromDataAsync(templateBuffer);
+    const trackRoot = await getOrCreateFolder('root', 'Track');
+    const weekFolderObj = await getOrCreateFolder(trackRoot.folderId, weekFolder);
+    const uploadResult = await uploadFile(weekFolderObj.folderId, trackerFileName, templateBuffer);
+    itemId = uploadResult.fileId;
+    
+    console.log(`Template uploaded with item ID: ${itemId}`);
+    
+    // Wait briefly for SharePoint to process the file before making Workbooks API calls
+    await new Promise(resolve => setTimeout(resolve, SHAREPOINT_PROCESSING_DELAY_MS));
+  } else {
+    console.log(`Tracker already exists with item ID: ${itemId}`);
   }
   
-  // Get labor lines for this report
+  // 4. Get the correct sheet name for this day
+  const reportDate = report.reportDate instanceof Date ? report.reportDate : new Date(report.reportDate);
+  const sheetName = getDaySheetName(reportDate);
+  console.log(`Using sheet: ${sheetName} for date: ${reportDate.toISOString()}`);
+  
+  // 5. Find next available project block by reading the sheet
+  const startRow = await findNextProjectBlock(itemId, sheetName);
+  console.log(`Next available project block starts at row ${startRow}`);
+  
+  // 6. Get labor lines
   const laborLines = await ReportLaborLineRepository.findByReportId(report.id);
   console.log(`Found ${laborLines.length} labor lines for report ${report.id}`);
-  
-  // Determine which sheet to use based on day of week
-  const dayName = getDayName(new Date(report.reportDate));
-  console.log(`Report date: ${report.reportDate}, Day: ${dayName}`);
-  
-  // Find the sheet for this day
-  let sheet = null;
-  for (const s of workbook.sheets()) {
-    if (s.name().toLowerCase() === dayName.toLowerCase()) {
-      sheet = s;
-      break;
-    }
-  }
-  
-  if (!sheet) {
-    throw new Error(`Sheet for day "${dayName}" not found in tracker workbook`);
-  }
-  
-  console.log(`Using sheet: "${sheet.name()}"`);
-  
-  // Find next available project block in this sheet
-  const blockStartRow = findNextProjectBlock(sheet);
-  console.log(`Next available project block starts at row ${blockStartRow}`);
-  
-  // Parse report date for display
-  const reportDate = new Date(report.reportDate);
-  const formattedDate = formatDate(reportDate);
-  
-  // Fill header section
-  sheet.cell(`C${blockStartRow}`).value(formattedDate); // Date at C{startRow}
-  sheet.cell(`F${blockStartRow}`).value(supervisorName); // Person entering at F{startRow}
-  sheet.cell(`C${blockStartRow + 2}`).value(report.projectName || ''); // Project name at C{startRow+2}
-  sheet.cell(`G${blockStartRow + 2}`).value(supervisorName); // RTA Rep at G{startRow+2}
-  
-  console.log(`Header written - Date: ${formattedDate}, Project: ${report.projectName}, Supervisor: ${supervisorName}`);
-  
-  // Fill crew section (rows startRow+4 to startRow+15, which is MAX_CREW_ROWS for crew)
-  const crewStartRow = blockStartRow + 4;
-  
-  for (let i = 0; i < Math.min(laborLines.length, MAX_CREW_ROWS); i++) {
-    const line = laborLines[i];
-    const row = crewStartRow + i;
-    
-    const totalHours = (line.regularHours || 0) + (line.otHours || 0) + (line.dtHours || 0);
-    
-    sheet.cell(`B${row}`).value(line.employeeName || ''); // Employee name
-    sheet.cell(`C${row}`).value(line.startTime || ''); // Start time
-    sheet.cell(`D${row}`).value(line.endTime || ''); // End time
-    sheet.cell(`E${row}`).value(totalHours); // Total hours
-    sheet.cell(`F${row}`).value(line.skillName || ''); // Skill
-    sheet.cell(`G${row}`).value(line.workDescription || ''); // Work description
-    
-    console.log(`Crew row ${row}: ${line.employeeName}, ${line.startTime}-${line.endTime}, ${totalHours}hrs`);
-  }
   
   if (laborLines.length > MAX_CREW_ROWS) {
     console.warn(`Report has ${laborLines.length} labor lines, but only ${MAX_CREW_ROWS} can fit in one project block`);
   }
   
-  // Generate output buffer
-  const outputBuffer = await workbook.outputAsync() as Buffer;
-  console.log(`Tracker buffer generated, size: ${outputBuffer.length} bytes`);
+  // 7. Build cell updates
+  const updates = buildTrackerCellUpdates(
+    report,
+    supervisorName,
+    laborLines,
+    sheetName,
+    startRow
+  );
   
-  // Generate filename based on week folder
-  const weekFolder = report.weekFolder || getWeekFolderName(reportDate);
-  const fileName = `Tracker_${weekFolder.replace(/\s+/g, '_')}.xlsx`;
+  console.log(`Prepared ${updates.length} cell range updates`);
   
-  return {
-    buffer: outputBuffer,
-    fileName,
-  };
-}
-
-/**
- * Upload tracker to SharePoint Track folder
- */
-export async function uploadTrackerToSharePoint(
-  weekFolder: string,
-  trackerBuffer: Buffer,
-  fileName: string
-): Promise<{ fileId: string; webUrl: string }> {
-  // Get or create Track folder structure
-  const trackRoot = await getOrCreateFolder('root', 'Track');
-  const weekFolderObj = await getOrCreateFolder(trackRoot.folderId, weekFolder);
+  // 8. Write cells via Graph Workbooks API (batched)
+  await batchUpdateExcelRanges(itemId, updates);
   
-  // Upload the tracker
-  const result = await uploadFile(weekFolderObj.folderId, fileName, trackerBuffer);
-  console.log(`Uploaded Tracker to: ${result.webUrl}`);
-  
-  return result;
+  console.log(`Tracker updated successfully for week: ${weekFolder}`);
 }
