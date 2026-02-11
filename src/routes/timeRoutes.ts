@@ -617,7 +617,7 @@ router.get(
 /**
  * GET /api/time/employee-hours
  * Get employee hours report for a specific employee and date range
- * Query params: employeeId (UUID), startDate, endDate, applyLunchDeduction (optional, default: true)
+ * Query params: employeeId (UUID), startDate, endDate, applyLunchDeduction (optional, default: false)
  */
 router.get(
   '/employee-hours',
@@ -632,8 +632,8 @@ router.get(
         return;
       }
 
-      // Parse applyLunchDeduction parameter (default: true)
-      const shouldDeductLunch = applyLunchDeduction !== 'false';
+      // Parse applyLunchDeduction parameter (default: false)
+      const shouldDeductLunch = applyLunchDeduction === 'true';
       const LUNCH_DEDUCTION_HOURS = 0.5;
 
       // Import query function from database service
