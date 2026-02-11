@@ -31,6 +31,15 @@ interface CacheEntry<T> {
   expiry: number;
 }
 
+// Interface for Graph API batch response
+interface GraphBatchResponse {
+  responses: Array<{
+    id: string;
+    status: number;
+    body?: any;
+  }>;
+}
+
 const sharepointCache = new Map<string, CacheEntry<any>>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -773,13 +782,13 @@ export async function batchUpdateExcelRanges(
       }));
       
       // Send batch request
-      const response = await client.post('/$batch', {
+      const response = await client.post<GraphBatchResponse>('/$batch', {
         requests: batchRequests
       });
       
       // Check for individual request failures
       if (response.data.responses) {
-        const failures = response.data.responses.filter((r: any) => r.status >= 400);
+        const failures = response.data.responses.filter(r => r.status >= 400);
         if (failures.length > 0) {
           console.error('Some batch requests failed:', failures);
           throw new Error(`Batch update had ${failures.length} failures out of ${batch.length} requests`);
