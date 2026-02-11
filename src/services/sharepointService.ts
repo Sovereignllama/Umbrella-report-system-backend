@@ -39,6 +39,7 @@ interface GraphBatchResponse {
   responses: Array<{
     id: string;
     status: number;
+    headers?: Record<string, string>;
     body?: any;
   }>;
 }
@@ -828,6 +829,7 @@ export async function batchUpdateExcelRanges(
       const BASE_DELAY_MS = 2000; // Start with 2 seconds
       let retryCount = 0;
       let requestsToSend = batchRequests;
+      const succeededIds = new Set<string>();
       
       while (true) {
         // Send batch request
@@ -837,6 +839,10 @@ export async function batchUpdateExcelRanges(
         
         // Check for individual request failures
         if (response.data.responses) {
+          // Track successful requests
+          const successes = response.data.responses.filter(r => r.status >= 200 && r.status < 400);
+          successes.forEach(s => succeededIds.add(s.id));
+          
           const failures = response.data.responses.filter(r => r.status >= 400);
           
           if (failures.length > 0) {
@@ -870,7 +876,7 @@ export async function batchUpdateExcelRanges(
               let delayMs = BASE_DELAY_MS * Math.pow(2, retryCount);
               const retryAfterValues = retryableFailures
                 .map(f => {
-                  const headers = f.body?.headers || {};
+                  const headers = f.headers || {};
                   return headers['Retry-After'] || headers['retry-after'];
                 })
                 .filter(v => v !== undefined);
@@ -902,7 +908,13 @@ export async function batchUpdateExcelRanges(
         }
         
         // Success - all requests completed
-        break;
+        // Verify all original requests have been processed successfully
+        if (succeededIds.size === batchRequests.length) {
+          break;
+        }
+        
+        // Safety check: if we get here with incomplete successes but no failures to retry, something is wrong
+        throw new Error(`Unexpected state: ${succeededIds.size} successes out of ${batchRequests.length} requests, but no failures to retry`);
       }
       
       console.log(`Batch update completed: ${batch.length} ranges updated`);
