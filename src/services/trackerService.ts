@@ -1,5 +1,5 @@
-import { DailyReport, ReportLaborLine } from '../types/database';
-import { ReportLaborLineRepository } from '../repositories';
+import { DailyReport, ReportLaborLine, ReportEquipmentLine } from '../types/database';
+import { ReportLaborLineRepository, ReportEquipmentLineRepository } from '../repositories';
 import { 
   readFileByPath, 
   listFilesInFolder, 
@@ -14,6 +14,7 @@ import {
 
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const MAX_CREW_ROWS = 12; // Maximum crew members per project block
+const MAX_EQUIPMENT_ROWS = 12; // Maximum equipment items per project block
 const MAX_SHEET_ROWS = 200; // Safety limit for scanning rows
 const PROJECT_BLOCK_SIZE = 18; // 16 rows for project + 2-row gap
 // SharePoint file processing delay to ensure Workbooks API readiness after template upload
@@ -132,6 +133,7 @@ function buildTrackerCellUpdates(
   report: DailyReport,
   supervisorName: string,
   laborLines: ReportLaborLine[],
+  equipmentLines: ReportEquipmentLine[],
   sheetName: string,
   startRow: number
 ): Array<{ sheetName: string; rangeAddress: string; values: any[][] }> {
@@ -160,12 +162,6 @@ function buildTrackerCellUpdates(
     values: [[report.projectName || '']]
   });
   
-  updates.push({
-    sheetName,
-    rangeAddress: `G${startRow + 2}`,
-    values: [[supervisorName]]
-  });
-  
   // Crew section (rows startRow+4 to startRow+15)
   if (laborLines.length > 0) {
     const crewStartRow = startRow + 4;
@@ -192,6 +188,31 @@ function buildTrackerCellUpdates(
         sheetName,
         rangeAddress: `B${crewStartRow}:G${endRow}`,
         values: crewData
+      });
+    }
+  }
+  
+  // Equipment section (rows startRow+4 to startRow+15, columns K and L)
+  if (equipmentLines.length > 0) {
+    const equipmentStartRow = startRow + 4;
+    const equipmentData: any[][] = [];
+    
+    for (let i = 0; i < Math.min(equipmentLines.length, MAX_EQUIPMENT_ROWS); i++) {
+      const line = equipmentLines[i];
+      
+      equipmentData.push([
+        line.equipmentName || '',       // Column K
+        line.hoursUsed || 0             // Column L
+      ]);
+    }
+    
+    // Batch update equipment section as a single range if there are equipment items
+    if (equipmentData.length > 0) {
+      const endRow = equipmentStartRow + equipmentData.length - 1;
+      updates.push({
+        sheetName,
+        rangeAddress: `K${equipmentStartRow}:L${endRow}`,
+        values: equipmentData
       });
     }
   }
@@ -282,18 +303,27 @@ export async function generateAndUploadTracker(
     console.warn(`Report has ${laborLines.length} labor lines, but only ${MAX_CREW_ROWS} can fit in one project block`);
   }
   
-  // 7. Build cell updates
+  // 7. Get equipment lines
+  const equipmentLines = await ReportEquipmentLineRepository.findByReportId(report.id);
+  console.log(`Found ${equipmentLines.length} equipment lines for report ${report.id}`);
+  
+  if (equipmentLines.length > MAX_EQUIPMENT_ROWS) {
+    console.warn(`Report has ${equipmentLines.length} equipment lines, but only ${MAX_EQUIPMENT_ROWS} can fit in one project block`);
+  }
+  
+  // 8. Build cell updates
   const updates = buildTrackerCellUpdates(
     report,
     supervisorName,
     laborLines,
+    equipmentLines,
     sheetName,
     startRow
   );
   
   console.log(`Prepared ${updates.length} cell range updates`);
   
-  // 8. Write cells via Graph Workbooks API (batched)
+  // 9. Write cells via Graph Workbooks API (batched)
   await batchUpdateExcelRanges(itemId, updates);
   
   console.log(`Tracker updated successfully for week: ${weekFolder}`);
