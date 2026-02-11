@@ -26,6 +26,11 @@ import {
   archiveDfaToSharePoint,
   uploadPhotoToSharePoint,
 } from '../services/dfaService';
+import {
+  generateOrUpdateTrackerExcel,
+  uploadTrackerToSharePoint,
+  downloadExistingTracker,
+} from '../services/trackerService';
 
 // Configure multer for memory storage (files stored in memory as Buffer)
 const upload = multer({
@@ -300,6 +305,23 @@ router.post(
           } catch (dfaError) {
             console.error('Error generating/uploading DFA:', dfaError);
             console.error('DFA Error details:', dfaError instanceof Error ? dfaError.message : String(dfaError));
+          }
+          
+          // Generate and upload Tracker Excel (separate try-catch so it doesn't block on DFA errors)
+          try {
+            console.log('Generating Tracker Excel...');
+            const existingTracker = await downloadExistingTracker(weekFolder);
+            const { buffer: trackerBuffer, fileName: trackerFileName } = await generateOrUpdateTrackerExcel(
+              newReport,
+              supervisorName,
+              existingTracker
+            );
+            await uploadTrackerToSharePoint(weekFolder, trackerBuffer, trackerFileName);
+            console.log(`Tracker uploaded for week: ${weekFolder}`);
+          } catch (trackerError) {
+            console.error('Error generating/uploading Tracker:', trackerError);
+            console.error('Tracker Error details:', trackerError instanceof Error ? trackerError.message : String(trackerError));
+            // Don't throw - tracker errors shouldn't block report submission
           }
         });
       }

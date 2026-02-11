@@ -81,6 +81,8 @@ export interface ReportLaborLine {
   employeeId?: string;
   employeeName?: string;
   skillName?: string;
+  startTime?: string;
+  endTime?: string;
   regularHours: number;
   otHours: number;
   dtHours: number;
