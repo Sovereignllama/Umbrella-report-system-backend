@@ -1,4 +1,4 @@
-import { DailyReport } from '../types/database';
+import { DailyReport, ReportLaborLine } from '../types/database';
 import { ReportLaborLineRepository } from '../repositories';
 import { 
   readFileByPath, 
@@ -95,10 +95,15 @@ async function findNextProjectBlock(itemId: string, sheetName: string): Promise<
         // Found an empty block
         return currentRow;
       }
-    } catch (error) {
-      // If we can't read the cell, assume it's empty
-      console.warn(`Could not read cell ${checkCell}, assuming empty:`, error);
-      return currentRow;
+    } catch (error: any) {
+      // Only treat 404 errors as empty cells; propagate other errors
+      if (error.response?.status === 404 || error.message?.includes('not found')) {
+        console.log(`Cell ${checkCell} not found, assuming empty`);
+        return currentRow;
+      }
+      // For other errors (network, permission, etc.), log and propagate
+      console.error(`Error reading cell ${checkCell}:`, error);
+      throw error;
     }
     
     // Move to next potential block
@@ -115,7 +120,7 @@ async function findNextProjectBlock(itemId: string, sheetName: string): Promise<
 function buildTrackerCellUpdates(
   report: DailyReport,
   supervisorName: string,
-  laborLines: any[],
+  laborLines: ReportLaborLine[],
   sheetName: string,
   startRow: number
 ): Array<{ sheetName: string; rangeAddress: string; values: any[][] }> {

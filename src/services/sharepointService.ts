@@ -686,10 +686,18 @@ export async function readJsonFileByPath<T = any>(filePath: string): Promise<T> 
  * Build Graph API URL for Excel workbook range operations
  */
 function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: string): string {
-  // For Graph Workbooks API, sheet names and range addresses need special handling:
-  // - Sheet names are passed as parameters to the worksheets() function
-  // - Range addresses are passed as parameters to the range() function
-  // We don't URL-encode the entire parameter value; Graph API expects the raw values
+  // Validate inputs to prevent potential injection issues
+  // Sheet names shouldn't contain quotes or special characters that could break the URL
+  if (sheetName.includes("'") || sheetName.includes('"')) {
+    throw new Error(`Invalid sheet name: ${sheetName}`);
+  }
+  // Range addresses should follow Excel format (e.g., A1, B2:C10)
+  if (!/^[A-Z]+\d+(:[A-Z]+\d+)?$/i.test(rangeAddress)) {
+    throw new Error(`Invalid range address: ${rangeAddress}`);
+  }
+  
+  // For Graph Workbooks API, sheet names and range addresses are passed as string parameters
+  // within the function syntax - they should not be URL-encoded
   return `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodeURIComponent(itemId)}/workbook/worksheets('${sheetName}')/range(address='${rangeAddress}')`;
 }
 
@@ -809,7 +817,8 @@ export async function batchUpdateExcelRanges(
     
     clearSharePointCache();
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('Failed to batch update Excel ranges:', error);
-    throw new Error('Failed to batch update Excel ranges');
+    throw new Error(`Failed to batch update Excel ranges: ${errorMessage}`);
   }
 }
