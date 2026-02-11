@@ -1,9 +1,13 @@
 import XlsxPopulate from 'xlsx-populate';
+import type { Sheet } from 'xlsx-populate';
 import { DailyReport } from '../types/database';
 import { ReportLaborLineRepository } from '../repositories';
 import { readFileByPath, listFilesInFolder, uploadFile, getOrCreateFolder } from './sharepointService';
 
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
+const MAX_CREW_ROWS = 12; // Maximum crew members per project block
+const MAX_SHEET_ROWS = 200; // Safety limit for scanning rows
+const PROJECT_BLOCK_SIZE = 18; // 16 rows for project + 2-row gap
 
 /**
  * Load tracker template from SharePoint (root config folder, not client-specific)
@@ -51,7 +55,7 @@ function getDayName(reportDate: Date): string {
  * Find the next available project block row in a sheet
  * Returns the starting row number for the next project (where the date/header goes)
  */
-function findNextProjectBlock(sheet: any): number {
+function findNextProjectBlock(sheet: Sheet): number {
   // First project block starts at row 2
   // Each block is: header (2 rows) + project info (2 rows) + crew (12 rows) = 16 rows
   // Plus 2-row gap before next block
@@ -69,11 +73,11 @@ function findNextProjectBlock(sheet: any): number {
       return currentRow;
     }
     
-    // Move to next potential block (16 rows for current block + 2 row gap)
-    currentRow += 18;
+    // Move to next potential block
+    currentRow += PROJECT_BLOCK_SIZE;
     
-    // Safety check - don't go beyond row 200
-    if (currentRow > 200) {
+    // Safety check - don't go beyond max rows
+    if (currentRow > MAX_SHEET_ROWS) {
       console.warn('Reached row limit while searching for empty project block');
       return currentRow;
     }
@@ -84,7 +88,8 @@ function findNextProjectBlock(sheet: any): number {
  * Format date as MM/DD/YYYY
  */
 function formatDate(date: Date): string {
-  const dateStr = String(date).split('T')[0];
+  // Use toISOString to get reliable date string, then parse
+  const dateStr = date.toISOString().split('T')[0];
   const [year, month, day] = dateStr.split('-').map(Number);
   return `${month}/${day}/${year}`;
 }
@@ -94,11 +99,11 @@ function formatDate(date: Date): string {
  * This should match the weekFolder format passed from frontend
  */
 export function getWeekFolderName(reportDate: Date): string {
-  // Get Monday of the week
-  const d = new Date(reportDate);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(d.setDate(diff));
+  // Get Monday of the week (create new Date to avoid mutation)
+  const monday = new Date(reportDate);
+  const day = monday.getDay();
+  const diff = monday.getDate() - day + (day === 0 ? -6 : 1);
+  monday.setDate(diff);
   
   // Get Sunday of the week
   const sunday = new Date(monday);
@@ -213,10 +218,10 @@ export async function generateOrUpdateTrackerExcel(
   
   console.log(`Header written - Date: ${formattedDate}, Project: ${report.projectName}, Supervisor: ${supervisorName}`);
   
-  // Fill crew section (rows startRow+4 to startRow+15, which is 12 rows for crew)
+  // Fill crew section (rows startRow+4 to startRow+15, which is MAX_CREW_ROWS for crew)
   const crewStartRow = blockStartRow + 4;
   
-  for (let i = 0; i < Math.min(laborLines.length, 12); i++) {
+  for (let i = 0; i < Math.min(laborLines.length, MAX_CREW_ROWS); i++) {
     const line = laborLines[i];
     const row = crewStartRow + i;
     
@@ -232,8 +237,8 @@ export async function generateOrUpdateTrackerExcel(
     console.log(`Crew row ${row}: ${line.employeeName}, ${line.startTime}-${line.endTime}, ${totalHours}hrs`);
   }
   
-  if (laborLines.length > 12) {
-    console.warn(`Report has ${laborLines.length} labor lines, but only 12 can fit in one project block`);
+  if (laborLines.length > MAX_CREW_ROWS) {
+    console.warn(`Report has ${laborLines.length} labor lines, but only ${MAX_CREW_ROWS} can fit in one project block`);
   }
   
   // Generate output buffer
