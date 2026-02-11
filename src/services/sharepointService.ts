@@ -686,7 +686,10 @@ export async function readJsonFileByPath<T = any>(filePath: string): Promise<T> 
  * Build Graph API URL for Excel workbook range operations
  */
 function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: string): string {
-  return `/drives/${SHAREPOINT_DRIVE_ID}/items/${itemId}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(rangeAddress)}')`;
+  const encodedItemId = encodeURIComponent(itemId);
+  const encodedSheetName = encodeURIComponent(sheetName);
+  const encodedRangeAddress = encodeURIComponent(rangeAddress);
+  return `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodedItemId}/workbook/worksheets('${encodedSheetName}')/range(address='${encodedRangeAddress}')`;
 }
 
 /**

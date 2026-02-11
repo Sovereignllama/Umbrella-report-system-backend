@@ -16,6 +16,7 @@ const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const MAX_CREW_ROWS = 12; // Maximum crew members per project block
 const MAX_SHEET_ROWS = 200; // Safety limit for scanning rows
 const PROJECT_BLOCK_SIZE = 18; // 16 rows for project + 2-row gap
+const SHAREPOINT_PROCESSING_DELAY_MS = 2000; // Wait time after uploading template before Workbooks API calls
 
 /**
  * Load tracker template from SharePoint (root config folder, not client-specific)
@@ -245,7 +246,7 @@ export async function generateAndUploadTracker(
     console.log(`Template uploaded with item ID: ${itemId}`);
     
     // Wait briefly for SharePoint to process the file before making Workbooks API calls
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, SHAREPOINT_PROCESSING_DELAY_MS));
   } else {
     console.log(`Tracker already exists with item ID: ${itemId}`);
   }
