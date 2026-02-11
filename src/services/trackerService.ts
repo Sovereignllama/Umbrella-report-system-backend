@@ -3,6 +3,12 @@ import { DailyReport } from '../types/database';
 import { ReportLaborLineRepository } from '../repositories';
 import { readFileByPath, listFilesInFolder, uploadFile, getOrCreateFolder } from './sharepointService';
 
+// Minimal interface for xlsx-populate Sheet type (library has no official types)
+interface XlsxSheet {
+  cell(address: string): any;
+  name(): string;
+}
+
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const MAX_CREW_ROWS = 12; // Maximum crew members per project block
 const MAX_SHEET_ROWS = 200; // Safety limit for scanning rows
@@ -54,7 +60,7 @@ function getDayName(reportDate: Date): string {
  * Find the next available project block row in a sheet
  * Returns the starting row number for the next project (where the date/header goes)
  */
-function findNextProjectBlock(sheet: any): number {
+function findNextProjectBlock(sheet: XlsxSheet): number {
   // First project block starts at row 2
   // Each block is: header (2 rows) + project info (2 rows) + crew (12 rows) = 16 rows
   // Plus 2-row gap before next block
