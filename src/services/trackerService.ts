@@ -97,7 +97,7 @@ async function findNextProjectBlock(itemId: string, sheetName: string): Promise<
       }
     } catch (error) {
       // If we can't read the cell, assume it's empty
-      console.warn(`Could not read cell ${checkCell}, assuming empty`);
+      console.warn(`Could not read cell ${checkCell}, assuming empty:`, error);
       return currentRow;
     }
     
@@ -157,9 +157,9 @@ function buildTrackerCellUpdates(
     
     for (let i = 0; i < Math.min(laborLines.length, MAX_CREW_ROWS); i++) {
       const line = laborLines[i];
-      const totalHours = (Number(line.regularHours) ?? 0) + 
-                        (Number(line.otHours) ?? 0) + 
-                        (Number(line.dtHours) ?? 0);
+      const totalHours = (Number(line.regularHours) || 0) + 
+                        (Number(line.otHours) || 0) + 
+                        (Number(line.dtHours) || 0);
       
       crewData.push([
         line.employeeName || '',       // Column B

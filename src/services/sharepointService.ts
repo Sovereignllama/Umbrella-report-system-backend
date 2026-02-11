@@ -686,10 +686,11 @@ export async function readJsonFileByPath<T = any>(filePath: string): Promise<T> 
  * Build Graph API URL for Excel workbook range operations
  */
 function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: string): string {
-  const encodedItemId = encodeURIComponent(itemId);
-  const encodedSheetName = encodeURIComponent(sheetName);
-  const encodedRangeAddress = encodeURIComponent(rangeAddress);
-  return `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodedItemId}/workbook/worksheets('${encodedSheetName}')/range(address='${encodedRangeAddress}')`;
+  // For Graph Workbooks API, sheet names and range addresses need special handling:
+  // - Sheet names are passed as parameters to the worksheets() function
+  // - Range addresses are passed as parameters to the range() function
+  // We don't URL-encode the entire parameter value; Graph API expects the raw values
+  return `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodeURIComponent(itemId)}/workbook/worksheets('${sheetName}')/range(address='${rangeAddress}')`;
 }
 
 /**
@@ -793,8 +794,13 @@ export async function batchUpdateExcelRanges(
       if (response.data.responses) {
         const failures = response.data.responses.filter(r => r.status >= 400);
         if (failures.length > 0) {
-          console.error('Some batch requests failed:', failures);
-          throw new Error(`Batch update had ${failures.length} failures out of ${batch.length} requests`);
+          const failureDetails = failures.map(f => ({ 
+            id: f.id, 
+            status: f.status, 
+            error: f.body 
+          }));
+          console.error('Batch request failures:', failureDetails);
+          throw new Error(`Batch update had ${failures.length} failures out of ${batch.length} requests: ${JSON.stringify(failureDetails)}`);
         }
       }
       
