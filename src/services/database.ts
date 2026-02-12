@@ -223,6 +223,12 @@ export async function runMigrations(): Promise<void> {
           ALTER TABLE report_equipment_lines ALTER COLUMN equipment_id DROP NOT NULL;
           ALTER TABLE report_equipment_lines DROP CONSTRAINT IF EXISTS report_equipment_lines_equipment_id_fkey;
         `
+      },
+      {
+        name: '015_add_thirty_min_deduction',
+        sql: `
+          ALTER TABLE report_labor_lines ADD COLUMN IF NOT EXISTS thirty_min_deduction BOOLEAN DEFAULT false;
+        `
       }
     ];
 

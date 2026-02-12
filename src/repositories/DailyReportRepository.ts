@@ -22,6 +22,7 @@ export interface CreateDailyReportData {
     otHours: number;
     dtHours: number;
     workDescription?: string;
+    thirtyMinDeduction?: boolean;
   }>;
   equipmentLines: Array<{
     equipmentId: string;
@@ -119,12 +120,12 @@ export class DailyReportRepository {
       if (data.laborLines.length > 0) {
         const laborValues = data.laborLines
           .map((_line, idx) => {
-            const paramOffset = idx * 9;
-            return `($1, $${paramOffset + 2}, $${paramOffset + 3}, $${paramOffset + 4}, $${paramOffset + 5}, $${paramOffset + 6}, $${paramOffset + 7}, $${paramOffset + 8}, $${paramOffset + 9}, $${paramOffset + 10})`;
+            const paramOffset = idx * 10;
+            return `($1, $${paramOffset + 2}, $${paramOffset + 3}, $${paramOffset + 4}, $${paramOffset + 5}, $${paramOffset + 6}, $${paramOffset + 7}, $${paramOffset + 8}, $${paramOffset + 9}, $${paramOffset + 10}, $${paramOffset + 11})`;
           })
           .join(',');
 
-        const laborParams: (string | number | null)[] = [report.id];
+        const laborParams: (string | number | boolean | null)[] = [report.id];
         data.laborLines.forEach(line => {
           // Check if employeeId is a valid UUID, otherwise use null and rely on employee_name
           const isValidUuid = line.employeeId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(line.employeeId);
@@ -137,12 +138,13 @@ export class DailyReportRepository {
             line.dtHours,
             line.workDescription || '',
             line.startTime || null,
-            line.endTime || null
+            line.endTime || null,
+            line.thirtyMinDeduction || false
           );
         });
 
         await client.query(
-          `INSERT INTO report_labor_lines (report_id, employee_id, employee_name, skill_name, regular_hours, ot_hours, dt_hours, work_description, start_time, end_time)
+          `INSERT INTO report_labor_lines (report_id, employee_id, employee_name, skill_name, regular_hours, ot_hours, dt_hours, work_description, start_time, end_time, thirty_min_deduction)
            VALUES ${laborValues}`,
           laborParams
         );
@@ -208,6 +210,37 @@ export class DailyReportRepository {
       [id]
     );
     return result.rowCount > 0;
+  }
+
+  /**
+   * Delete archived reports for a specific client/project/date combination
+   * This prevents duplicate key errors when archiving during report updates
+   */
+  static async deleteArchivedByClientProjectDate(
+    clientName: string,
+    projectName: string,
+    reportDate: Date
+  ): Promise<number> {
+    // First delete related records for archived reports
+    const archivedReports = await query<DailyReport>(
+      `SELECT id FROM daily_reports 
+       WHERE client_name = $1 AND project_name = $2 AND report_date = $3 AND status = 'archived'`,
+      [clientName, projectName, reportDate]
+    );
+    
+    for (const report of archivedReports.rows) {
+      await query('DELETE FROM report_labor_lines WHERE report_id = $1', [report.id]);
+      await query('DELETE FROM report_equipment_lines WHERE report_id = $1', [report.id]);
+      await query('DELETE FROM report_materials WHERE report_id = $1', [report.id]);
+      await query('DELETE FROM report_attachments WHERE report_id = $1', [report.id]);
+    }
+    
+    const result = await query(
+      `DELETE FROM daily_reports 
+       WHERE client_name = $1 AND project_name = $2 AND report_date = $3 AND status = 'archived'`,
+      [clientName, projectName, reportDate]
+    );
+    return result.rowCount || 0;
   }
 
   /**
