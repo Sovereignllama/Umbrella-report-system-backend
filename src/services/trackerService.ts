@@ -17,6 +17,8 @@ const MAX_CREW_ROWS = 12; // Maximum crew members per project block
 const MAX_EQUIPMENT_ROWS = 12; // Maximum equipment items per project block
 const MAX_SHEET_ROWS = 200; // Safety limit for scanning rows
 const PROJECT_BLOCK_SIZE = 18; // 16 rows for project + 2-row gap
+const CREW_COLUMN_COUNT = 6; // Columns B-G for crew data
+const EQUIPMENT_COLUMN_COUNT = 2; // Columns K-L for equipment data
 // SharePoint file processing delay to ensure Workbooks API readiness after template upload
 // This delay allows SharePoint to fully index and process the Excel file before making Workbooks API calls
 const SHAREPOINT_PROCESSING_DELAY_MS = 2000; // 2 seconds based on empirical testing
@@ -194,7 +196,7 @@ async function clearProjectBlock(
   const crewEndRow = crewStartRow + MAX_CREW_ROWS - 1;
   const emptyCrewData: any[][] = [];
   for (let i = 0; i < MAX_CREW_ROWS; i++) {
-    emptyCrewData.push(['', '', '', '', '', '']); // 6 columns: B, C, D, E, F, G
+    emptyCrewData.push(new Array(CREW_COLUMN_COUNT).fill('')); // 6 columns: B, C, D, E, F, G
   }
   updates.push({
     sheetName,
@@ -207,7 +209,7 @@ async function clearProjectBlock(
   const equipmentEndRow = equipmentStartRow + MAX_EQUIPMENT_ROWS - 1;
   const emptyEquipmentData: any[][] = [];
   for (let i = 0; i < MAX_EQUIPMENT_ROWS; i++) {
-    emptyEquipmentData.push(['', '']); // 2 columns: K, L
+    emptyEquipmentData.push(new Array(EQUIPMENT_COLUMN_COUNT).fill('')); // 2 columns: K, L
   }
   updates.push({
     sheetName,
