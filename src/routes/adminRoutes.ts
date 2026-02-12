@@ -148,7 +148,7 @@ router.post(
       const { userId } = req.params;
       const { role } = req.body;
 
-      if (!['admin', 'supervisor', 'boss'].includes(role)) {
+      if (!['admin', 'supervisor', 'manager', 'time', 'boss'].includes(role)) {
         res.status(400).json({ error: 'Invalid role' });
         return;
       }
