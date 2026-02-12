@@ -169,6 +169,16 @@ router.post(
       }
 
       if (existingReport) {
+        // Delete any previously archived reports for this client/project/date
+        // so the unique constraint doesn't conflict
+        if (clientName && projectName) {
+          await DailyReportRepository.deleteArchivedByClientProjectDate(
+            clientName,
+            projectName,
+            new Date(reportDate)
+          );
+        }
+        
         // Archive the old report
         await DailyReportRepository.archiveReport(existingReport.id);
 
@@ -199,6 +209,7 @@ router.post(
         workDescription: line.work_description || line.workDescription || '',
         startTime: line.start_time || line.startTime || null,
         endTime: line.end_time || line.endTime || null,
+        thirtyMinDeduction: line.thirty_min_deduction || line.thirtyMinDeduction || false,
       }));
 
       // Map equipment lines to the expected format
@@ -350,9 +361,25 @@ router.get(
       const laborLines = await ReportLaborLineRepository.findByReportId(id);
       const equipmentLines = await ReportEquipmentLineRepository.findByReportId(id);
 
+      // Map labor lines to camelCase
+      const mappedLaborLines = laborLines.map((line: any) => ({
+        id: line.id,
+        reportId: line.report_id || line.reportId,
+        employeeId: line.employee_id || line.employeeId,
+        employeeName: line.employee_name || line.employeeName,
+        skillName: line.skill_name || line.skillName,
+        startTime: line.start_time || line.startTime,
+        endTime: line.end_time || line.endTime,
+        regularHours: line.regular_hours || line.regularHours,
+        otHours: line.ot_hours || line.otHours,
+        dtHours: line.dt_hours || line.dtHours,
+        workDescription: line.work_description || line.workDescription,
+        thirtyMinDeduction: line.thirty_min_deduction || line.thirtyMinDeduction || false,
+      }));
+
       res.json({
         report,
-        laborLines,
+        laborLines: mappedLaborLines,
         equipmentLines
       });
     } catch (error) {

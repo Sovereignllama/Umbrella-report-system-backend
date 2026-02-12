@@ -22,6 +22,7 @@ export interface CreateDailyReportData {
     otHours: number;
     dtHours: number;
     workDescription?: string;
+    thirtyMinDeduction?: boolean;
   }>;
   equipmentLines: Array<{
     equipmentId: string;
@@ -119,12 +120,12 @@ export class DailyReportRepository {
       if (data.laborLines.length > 0) {
         const laborValues = data.laborLines
           .map((_line, idx) => {
-            const paramOffset = idx * 9;
-            return `($1, $${paramOffset + 2}, $${paramOffset + 3}, $${paramOffset + 4}, $${paramOffset + 5}, $${paramOffset + 6}, $${paramOffset + 7}, $${paramOffset + 8}, $${paramOffset + 9}, $${paramOffset + 10})`;
+            const paramOffset = idx * 10;
+            return `($1, $${paramOffset + 2}, $${paramOffset + 3}, $${paramOffset + 4}, $${paramOffset + 5}, $${paramOffset + 6}, $${paramOffset + 7}, $${paramOffset + 8}, $${paramOffset + 9}, $${paramOffset + 10}, $${paramOffset + 11})`;
           })
           .join(',');
 
-        const laborParams: (string | number | null)[] = [report.id];
+        const laborParams: (string | number | boolean | null)[] = [report.id];
         data.laborLines.forEach(line => {
           // Check if employeeId is a valid UUID, otherwise use null and rely on employee_name
           const isValidUuid = line.employeeId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(line.employeeId);
@@ -137,12 +138,13 @@ export class DailyReportRepository {
             line.dtHours,
             line.workDescription || '',
             line.startTime || null,
-            line.endTime || null
+            line.endTime || null,
+            line.thirtyMinDeduction || false
           );
         });
 
         await client.query(
-          `INSERT INTO report_labor_lines (report_id, employee_id, employee_name, skill_name, regular_hours, ot_hours, dt_hours, work_description, start_time, end_time)
+          `INSERT INTO report_labor_lines (report_id, employee_id, employee_name, skill_name, regular_hours, ot_hours, dt_hours, work_description, start_time, end_time, thirty_min_deduction)
            VALUES ${laborValues}`,
           laborParams
         );
@@ -208,6 +210,46 @@ export class DailyReportRepository {
       [id]
     );
     return result.rowCount > 0;
+  }
+
+  /**
+   * Delete archived reports for a specific client/project/date combination
+   * This prevents duplicate key errors when archiving during report updates
+   */
+  static async deleteArchivedByClientProjectDate(
+    clientName: string,
+    projectName: string,
+    reportDate: Date
+  ): Promise<number> {
+    return withTransaction(async (client) => {
+      // First find all archived reports for this client/project/date
+      const archivedReports = await client.query<DailyReport>(
+        `SELECT id FROM daily_reports 
+         WHERE client_name = $1 AND project_name = $2 AND report_date = $3 AND status = 'archived'`,
+        [clientName, projectName, reportDate]
+      );
+      
+      if (archivedReports.rows.length === 0) {
+        return 0;
+      }
+      
+      const reportIds = archivedReports.rows.map(r => r.id);
+      const placeholders = reportIds.map((_, idx) => `$${idx + 1}`).join(',');
+      
+      // Delete related records for all archived reports in batch
+      await client.query(`DELETE FROM report_labor_lines WHERE report_id IN (${placeholders})`, reportIds);
+      await client.query(`DELETE FROM report_equipment_lines WHERE report_id IN (${placeholders})`, reportIds);
+      await client.query(`DELETE FROM report_materials WHERE report_id IN (${placeholders})`, reportIds);
+      await client.query(`DELETE FROM report_attachments WHERE report_id IN (${placeholders})`, reportIds);
+      
+      // Delete the archived reports themselves
+      const result = await client.query(
+        `DELETE FROM daily_reports 
+         WHERE client_name = $1 AND project_name = $2 AND report_date = $3 AND status = 'archived'`,
+        [clientName, projectName, reportDate]
+      );
+      return result.rowCount || 0;
+    });
   }
 
   /**
