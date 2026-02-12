@@ -388,7 +388,7 @@ export async function generateAndUploadTracker(
   
   // 5. Check for existing project block first, then find next available if not found
   let startRow: number;
-  const existingRow = await findExistingProjectBlock(itemId, sheetName, report.projectName);
+  const existingRow = await findExistingProjectBlock(itemId, sheetName, report.projectName || '');
   
   if (existingRow !== null) {
     // Found existing project block - clear it before writing new data
