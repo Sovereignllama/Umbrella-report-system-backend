@@ -4,6 +4,7 @@ export {
   requireAdmin,
   requireSupervisor,
   requireSupervisorOrBoss,
+  requireTimeAccess,
 } from './authMiddleware';
 
 export { errorHandler, notFoundHandler, AppError } from './errorHandler';

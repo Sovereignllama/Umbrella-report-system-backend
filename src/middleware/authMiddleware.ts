@@ -63,7 +63,7 @@ export async function authMiddleware(
 /**
  * Middleware to check if user has specific role (admin always has access)
  */
-export function requireRole(...roles: Array<'admin' | 'supervisor' | 'boss'>) {
+export function requireRole(...roles: Array<'admin' | 'supervisor' | 'boss' | 'manager' | 'time'>) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({ error: 'Unauthorized' });
@@ -159,3 +159,8 @@ export function requireSupervisor(
 
   next();
 }
+
+/**
+ * Middleware to require time access (supervisor, boss, manager, or time role)
+ */
+export const requireTimeAccess = requireRole('supervisor', 'boss', 'manager', 'time');
