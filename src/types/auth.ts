@@ -14,7 +14,7 @@ export interface AuthRequest extends Request {
     email: string;
     name: string;
     azureOid: string; // Azure AD Object ID
-    role: 'admin' | 'supervisor' | 'boss';
+    role: 'admin' | 'supervisor' | 'boss' | 'manager' | 'time';
   };
   query: Record<string, string | string[] | undefined>;
 }
@@ -29,6 +29,6 @@ export interface LoginResponse {
     id: string;
     email: string;
     name: string;
-    role: 'admin' | 'supervisor' | 'boss';
+    role: 'admin' | 'supervisor' | 'boss' | 'manager' | 'time';
   };
 }

@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { AuthRequest } from '../types/auth';
-import { authMiddleware, requireSupervisorOrBoss } from '../middleware';
+import { authMiddleware, requireSupervisorOrBoss, requireTimeAccess } from '../middleware';
 import { TimeEntryRepository, PayPeriodRepository } from '../repositories';
 import { listFilesInFolder, readFileByPath } from '../services/sharepointService';
 import { getSetting } from './settingsRoutes';
@@ -245,7 +245,7 @@ async function loadPayPeriodsFromSharePoint(year: number): Promise<Array<{
 router.get(
   '/pay-periods',
   authMiddleware,
-  requireSupervisorOrBoss,
+  requireTimeAccess,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const yearParam = req.query.year;
@@ -375,7 +375,7 @@ router.post(
 router.get(
   '/employees',
   authMiddleware,
-  requireSupervisorOrBoss,
+  requireTimeAccess,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const { startDate, endDate } = req.query;
@@ -455,7 +455,7 @@ router.get(
 router.get(
   '/sign-in-out',
   authMiddleware,
-  requireSupervisorOrBoss,
+  requireTimeAccess,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const { startDate, endDate, employeeId, projectId } = req.query;
@@ -488,7 +488,7 @@ router.get(
 router.get(
   '/entries',
   authMiddleware,
-  requireSupervisorOrBoss,
+  requireTimeAccess,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const { startDate, endDate, employeeId, projectId } = req.query;
@@ -622,7 +622,7 @@ router.get(
 router.get(
   '/employee-hours',
   authMiddleware,
-  requireSupervisorOrBoss,
+  requireTimeAccess,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const { employeeId, startDate, endDate, applyLunchDeduction } = req.query;
@@ -799,7 +799,7 @@ router.get(
 router.get(
   '/period-summary',
   authMiddleware,
-  requireSupervisorOrBoss,
+  requireTimeAccess,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const { startDate, endDate } = req.query;
