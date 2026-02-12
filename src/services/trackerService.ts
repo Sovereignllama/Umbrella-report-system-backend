@@ -84,6 +84,58 @@ function formatDate(date: Date): string {
 }
 
 /**
+ * Find an existing project block in a sheet by project name (case-insensitive)
+ * Returns the starting row number if found, null otherwise
+ */
+async function findExistingProjectBlock(
+  itemId: string, 
+  sheetName: string, 
+  projectName: string
+): Promise<number | null> {
+  // Normalize project name for case-insensitive comparison
+  const normalizedProjectName = projectName.toLowerCase().trim();
+  
+  let currentRow = 2;
+  
+  while (currentRow <= MAX_SHEET_ROWS) {
+    // Check the project name cell (C + offset 2)
+    const checkCell = `C${currentRow + 2}`;
+    
+    try {
+      const values = await readExcelRange(itemId, sheetName, checkCell);
+      
+      // Check if cell has a value
+      if (values && values.length > 0 && values[0] && values[0][0]) {
+        const cellValue = String(values[0][0]).toLowerCase().trim();
+        
+        // If project name matches, return this row
+        if (cellValue === normalizedProjectName) {
+          console.log(`Found existing project "${projectName}" at row ${currentRow}`);
+          return currentRow;
+        }
+      } else {
+        // Hit an empty block, stop searching
+        break;
+      }
+    } catch (error: any) {
+      // Treat 404 errors as end of data
+      if (error.response?.status === 404) {
+        break;
+      }
+      // For other errors, log and propagate
+      console.error(`Error reading cell ${checkCell}:`, error);
+      throw error;
+    }
+    
+    // Move to next potential block
+    currentRow += PROJECT_BLOCK_SIZE;
+  }
+  
+  console.log(`No existing project block found for "${projectName}"`);
+  return null;
+}
+
+/**
  * Find the next available project block in a sheet using Graph API
  * Returns the starting row number for the next project (where the date/header goes)
  */
@@ -124,6 +176,47 @@ async function findNextProjectBlock(itemId: string, sheetName: string): Promise<
   
   console.warn('Reached row limit while searching for empty project block');
   return currentRow;
+}
+
+/**
+ * Clear all data cells in a project block
+ * This is needed when overwriting a report that may have fewer lines than before
+ */
+async function clearProjectBlock(
+  itemId: string,
+  sheetName: string,
+  startRow: number
+): Promise<void> {
+  const updates: Array<{ sheetName: string; rangeAddress: string; values: any[][] }> = [];
+  
+  // Clear crew data (B to G, 12 rows starting at startRow+4)
+  const crewStartRow = startRow + 4;
+  const crewEndRow = crewStartRow + MAX_CREW_ROWS - 1;
+  const emptyCrewData: any[][] = [];
+  for (let i = 0; i < MAX_CREW_ROWS; i++) {
+    emptyCrewData.push(['', '', '', '', '', '']); // 6 columns: B, C, D, E, F, G
+  }
+  updates.push({
+    sheetName,
+    rangeAddress: `B${crewStartRow}:G${crewEndRow}`,
+    values: emptyCrewData
+  });
+  
+  // Clear equipment data (K to L, 12 rows starting at startRow+4)
+  const equipmentStartRow = startRow + 4;
+  const equipmentEndRow = equipmentStartRow + MAX_EQUIPMENT_ROWS - 1;
+  const emptyEquipmentData: any[][] = [];
+  for (let i = 0; i < MAX_EQUIPMENT_ROWS; i++) {
+    emptyEquipmentData.push(['', '']); // 2 columns: K, L
+  }
+  updates.push({
+    sheetName,
+    rangeAddress: `K${equipmentStartRow}:L${equipmentEndRow}`,
+    values: emptyEquipmentData
+  });
+  
+  console.log(`Clearing project block at row ${startRow}`);
+  await batchUpdateExcelRanges(itemId, updates);
 }
 
 /**
@@ -291,9 +384,20 @@ export async function generateAndUploadTracker(
   const sheetName = getDaySheetName(reportDate);
   console.log(`Using sheet: ${sheetName} for date: ${reportDate.toISOString()}`);
   
-  // 5. Find next available project block by reading the sheet
-  const startRow = await findNextProjectBlock(itemId, sheetName);
-  console.log(`Next available project block starts at row ${startRow}`);
+  // 5. Check for existing project block first, then find next available if not found
+  let startRow: number;
+  const existingRow = await findExistingProjectBlock(itemId, sheetName, report.projectName);
+  
+  if (existingRow !== null) {
+    // Found existing project block - clear it before writing new data
+    console.log(`Overwriting existing project block at row ${existingRow}`);
+    await clearProjectBlock(itemId, sheetName, existingRow);
+    startRow = existingRow;
+  } else {
+    // No existing block found - use next available empty block
+    startRow = await findNextProjectBlock(itemId, sheetName);
+    console.log(`Using next available project block at row ${startRow}`);
+  }
   
   // 6. Get labor lines
   const laborLines = await ReportLaborLineRepository.findByReportId(report.id);
