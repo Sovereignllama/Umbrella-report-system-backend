@@ -221,26 +221,35 @@ export class DailyReportRepository {
     projectName: string,
     reportDate: Date
   ): Promise<number> {
-    // First delete related records for archived reports
-    const archivedReports = await query<DailyReport>(
-      `SELECT id FROM daily_reports 
-       WHERE client_name = $1 AND project_name = $2 AND report_date = $3 AND status = 'archived'`,
-      [clientName, projectName, reportDate]
-    );
-    
-    for (const report of archivedReports.rows) {
-      await query('DELETE FROM report_labor_lines WHERE report_id = $1', [report.id]);
-      await query('DELETE FROM report_equipment_lines WHERE report_id = $1', [report.id]);
-      await query('DELETE FROM report_materials WHERE report_id = $1', [report.id]);
-      await query('DELETE FROM report_attachments WHERE report_id = $1', [report.id]);
-    }
-    
-    const result = await query(
-      `DELETE FROM daily_reports 
-       WHERE client_name = $1 AND project_name = $2 AND report_date = $3 AND status = 'archived'`,
-      [clientName, projectName, reportDate]
-    );
-    return result.rowCount || 0;
+    return withTransaction(async (client) => {
+      // First find all archived reports for this client/project/date
+      const archivedReports = await client.query<DailyReport>(
+        `SELECT id FROM daily_reports 
+         WHERE client_name = $1 AND project_name = $2 AND report_date = $3 AND status = 'archived'`,
+        [clientName, projectName, reportDate]
+      );
+      
+      if (archivedReports.rows.length === 0) {
+        return 0;
+      }
+      
+      const reportIds = archivedReports.rows.map(r => r.id);
+      const placeholders = reportIds.map((_, idx) => `$${idx + 1}`).join(',');
+      
+      // Delete related records for all archived reports in batch
+      await client.query(`DELETE FROM report_labor_lines WHERE report_id IN (${placeholders})`, reportIds);
+      await client.query(`DELETE FROM report_equipment_lines WHERE report_id IN (${placeholders})`, reportIds);
+      await client.query(`DELETE FROM report_materials WHERE report_id IN (${placeholders})`, reportIds);
+      await client.query(`DELETE FROM report_attachments WHERE report_id IN (${placeholders})`, reportIds);
+      
+      // Delete the archived reports themselves
+      const result = await client.query(
+        `DELETE FROM daily_reports 
+         WHERE client_name = $1 AND project_name = $2 AND report_date = $3 AND status = 'archived'`,
+        [clientName, projectName, reportDate]
+      );
+      return result.rowCount || 0;
+    });
   }
 
   /**
