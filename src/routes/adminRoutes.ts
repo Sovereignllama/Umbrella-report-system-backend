@@ -21,7 +21,7 @@ import { parseCSV, getCSVCell } from '../utils/csvParser';
 const router = Router();
 
 // Allowed roles for user assignment
-const ALLOWED_ROLES = ['admin', 'supervisor', 'manager', 'time', 'boss'] as const;
+const ALLOWED_ROLES = ['admin', 'supervisor', 'manager', 'time', 'boss'];
 
 // ============================================
 // CLIENT MANAGEMENT
