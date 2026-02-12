@@ -20,6 +20,9 @@ import { parseCSV, getCSVCell } from '../utils/csvParser';
 
 const router = Router();
 
+// Allowed roles for user assignment
+const ALLOWED_ROLES = ['admin', 'supervisor', 'manager', 'time', 'boss'] as const;
+
 // ============================================
 // CLIENT MANAGEMENT
 // ============================================
@@ -148,7 +151,7 @@ router.post(
       const { userId } = req.params;
       const { role } = req.body;
 
-      if (!['admin', 'supervisor', 'manager', 'time', 'boss'].includes(role)) {
+      if (!ALLOWED_ROLES.includes(role)) {
         res.status(400).json({ error: 'Invalid role' });
         return;
       }
