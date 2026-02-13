@@ -251,10 +251,10 @@ router.post(
         try {
           const originalSupervisor = await UserRepository.findById(existingReport.supervisorId);
           if (originalSupervisor) {
-            supervisorName = originalSupervisor.name;
+            supervisorName = originalSupervisor.name || DEFAULT_SUPERVISOR_NAME;
           }
         } catch (error) {
-          console.warn('Failed to look up original supervisor name:', error);
+          console.warn(`Failed to look up original supervisor (ID: ${existingReport.supervisorId}):`, error);
           // Continue with default supervisor name
         }
       }
