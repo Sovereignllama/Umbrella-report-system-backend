@@ -27,9 +27,16 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     }
 
     // Construct the full URL for validation (need protocol, host, and path)
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const url = `${protocol}://${host}${req.originalUrl}`;
+    // Use explicit webhook URL if configured, otherwise construct from request
+    const webhookUrl = process.env.TWILIO_WEBHOOK_URL;
+    let url: string;
+    if (webhookUrl) {
+      url = webhookUrl;
+    } else {
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+      const host = req.get('host');
+      url = `${protocol}://${host}${req.originalUrl}`;
+    }
     
     const isValid = validateTwilioSignature(url, req.body, twilioSignature);
     if (!isValid) {
