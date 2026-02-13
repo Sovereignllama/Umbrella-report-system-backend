@@ -75,7 +75,7 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     if (!parsedDate) {
       res.type('text/xml').send(
         generateTwiMLResponse(
-          'I couldn\'t understand the date. Please send a photo with the date in this format: Feb 16'
+          "I couldn't understand the date. Please send a photo with the date in one of these formats: Feb 16, feb16, 2/16, or February 16"
         )
       );
       return;
@@ -118,9 +118,9 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
 
     // Upload the photo to SharePoint
     console.log(`☁️  Uploading file: ${fileName}`);
-    const result = await uploadFile(monthFolder.folderId, fileName, photoBuffer);
+    const uploadResult = await uploadFile(monthFolder.folderId, fileName, photoBuffer);
     
-    console.log(`✅ Sign-in/out sheet uploaded successfully: ${result.webUrl}`);
+    console.log(`✅ Sign-in/out sheet uploaded successfully: ${uploadResult.webUrl}`);
 
     // Send success response via TwiML
     res.type('text/xml').send(

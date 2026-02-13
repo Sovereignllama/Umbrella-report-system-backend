@@ -4,8 +4,12 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+
+if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+  console.warn('⚠️  Twilio credentials not configured. SMS webhook will not function.');
+}
 
 /**
  * Generate TwiML response XML
@@ -35,6 +39,10 @@ function escapeXml(unsafe: string): string {
  * @returns Buffer containing the media content
  */
 export async function downloadTwilioMedia(mediaUrl: string): Promise<Buffer> {
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+    throw new Error('Twilio credentials not configured');
+  }
+  
   try {
     const response = await axios.get(mediaUrl, {
       responseType: 'arraybuffer',
@@ -80,6 +88,11 @@ export function validateTwilioSignature(
   params: Record<string, any>,
   signature: string
 ): boolean {
+  if (!TWILIO_AUTH_TOKEN) {
+    console.error('Cannot validate signature: TWILIO_AUTH_TOKEN not configured');
+    return false;
+  }
+  
   try {
     return twilio.validateRequest(
       TWILIO_AUTH_TOKEN,
