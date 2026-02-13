@@ -86,7 +86,7 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     if (!parseResult) {
       res.type('text/xml').send(
         generateTwiMLResponse(
-          "I couldn't understand the date. Please send a photo with the date in one of these formats: Feb 16, feb16, 2/16, or February 16"
+          "I couldn't understand the date. Please send a photo with the date in one of these formats: Feb 16, feb16, 2/16, or February 16. Optionally add a page number: Feb 16 2, feb16 2, or 2/16 2"
         )
       );
       return;
@@ -139,14 +139,14 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     
     console.log(`✅ Sign-in/out sheet uploaded successfully: ${uploadResult.webUrl}`);
 
-    // Delete existing record for this date and filename to implement replace behavior
+    // Save the upload record to the database, replacing any existing record
+    // Delete existing record first, then create new one
     console.log(`🗑️  Checking for existing record with date=${dateStr} and fileName=${fileName}`);
     const deleted = await SignInOutFormRepository.deleteByDateAndFileName(dateStr, fileName);
     if (deleted) {
       console.log(`🗑️  Deleted existing record for ${fileName}`);
     }
 
-    // Save the upload record to the database
     console.log(`💾 Saving record to database for ${dateStr}`);
     await SignInOutFormRepository.create({
       date: dateStr,
