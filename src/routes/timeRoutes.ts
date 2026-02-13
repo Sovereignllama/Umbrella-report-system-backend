@@ -2,13 +2,18 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../types/auth';
 import { authMiddleware, requireSupervisorOrBoss, requireTimeAccess } from '../middleware';
 import { TimeEntryRepository, PayPeriodRepository } from '../repositories';
-import { listFilesInFolder, readFileByPath } from '../services/sharepointService';
+import { SignInOutFormRepository } from '../repositories/SignInOutFormRepository';
+import { listFilesInFolder, readFileByPath, getOrCreateFolder, uploadFile, getFolderByPath } from '../services/sharepointService';
 import { getSetting } from './settingsRoutes';
 import ExcelJS from 'exceljs';
 import { parseDate } from '../utils/dateParser';
 import { parseCSV, getCSVCell } from '../utils/csvParser';
+import multer from 'multer';
 
 const router = Router();
+
+// Configure multer for file uploads (store in memory)
+const upload = multer({ storage: multer.memoryStorage() });
 
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 
@@ -449,8 +454,8 @@ router.get(
 
 /**
  * GET /api/time/sign-in-out
- * Get time entries (sign-in/out forms) by date range
- * Query params: startDate, endDate, employeeId (optional), projectId (optional)
+ * Get sign-in/out forms by date range
+ * Query params: startDate, endDate
  */
 router.get(
   '/sign-in-out',
@@ -458,24 +463,114 @@ router.get(
   requireTimeAccess,
   async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-      const { startDate, endDate, employeeId, projectId } = req.query;
+      const { startDate, endDate } = req.query;
 
       if (!startDate || !endDate) {
         res.status(400).json({ error: 'startDate and endDate are required' });
         return;
       }
 
-      const entries = await TimeEntryRepository.findByDateRange(
+      const forms = await SignInOutFormRepository.findByDateRange(
         startDate as string,
-        endDate as string,
-        employeeId ? String(employeeId) : undefined,
-        projectId ? String(projectId) : undefined
+        endDate as string
       );
 
-      res.json(entries);
+      res.json(forms);
     } catch (error) {
       console.error('Error fetching sign-in-out forms:', error);
       res.status(500).json({ error: 'Failed to fetch sign-in-out forms' });
+    }
+  }
+);
+
+/**
+ * POST /api/time/sign-in-out/upload
+ * Upload sign-in/out form photo to SharePoint and save record to database
+ * Body: multipart/form-data with 'file' field and 'date' field (YYYY-MM-DD format)
+ */
+router.post(
+  '/sign-in-out/upload',
+  authMiddleware,
+  requireTimeAccess,
+  upload.single('file'),
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const file = req.file;
+      const { date } = req.body;
+
+      // Validation
+      if (!file) {
+        res.status(400).json({ error: 'No file uploaded' });
+        return;
+      }
+
+      if (!date) {
+        res.status(400).json({ error: 'Date is required (format: YYYY-MM-DD)' });
+        return;
+      }
+
+      // Validate date format
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(date)) {
+        res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+        return;
+      }
+
+      // Parse date for folder structure
+      const parsedDate = new Date(date + 'T00:00:00Z');
+      const year = parsedDate.getUTCFullYear();
+      const month = parsedDate.getUTCMonth();
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const monthName = monthNames[month];
+
+      // Get file extension from original filename or default to jpg
+      const originalName = file.originalname;
+      const extension = originalName.split('.').pop() || 'jpg';
+      const fileName = `${date}.${extension}`;
+
+      // Navigate to existing Track/sign_in_out folder
+      console.log(`📁 Creating SharePoint folder structure: Track/sign_in_out/${year}/${monthName}/`);
+      
+      const signInOutFolder = await getFolderByPath('Track/sign_in_out');
+      if (!signInOutFolder) {
+        throw new Error('Track/sign_in_out folder not found in SharePoint');
+      }
+      
+      // Get or create year folder
+      const yearFolder = await getOrCreateFolder(signInOutFolder.id, String(year));
+      
+      // Get or create month folder
+      const monthFolder = await getOrCreateFolder(yearFolder.folderId, monthName);
+
+      // Upload file to SharePoint
+      console.log(`☁️  Uploading file: ${fileName}`);
+      const uploadResult = await uploadFile(monthFolder.folderId, fileName, file.buffer);
+      
+      console.log(`✅ Sign-in/out sheet uploaded successfully: ${uploadResult.webUrl}`);
+
+      // Save record to database
+      const uploadedBy = req.user?.email || 'unknown';
+      console.log(`💾 Saving record to database for ${date}`);
+      const dbRecord = await SignInOutFormRepository.create({
+        date: date,
+        fileName: fileName,
+        uploadedBy: uploadedBy,
+        sharepointUrl: uploadResult.webUrl,
+      });
+
+      console.log(`✅ Database record created successfully`);
+
+      res.json({
+        success: true,
+        message: 'Sign-in/out sheet uploaded successfully',
+        data: dbRecord,
+      });
+    } catch (error) {
+      console.error('Error uploading sign-in-out form:', error);
+      res.status(500).json({ error: 'Failed to upload sign-in-out form' });
     }
   }
 );

@@ -146,3 +146,13 @@ export interface TimeEntry {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface SignInOutForm {
+  id: string;
+  date: string;
+  fileName: string;
+  uploadedBy: string;
+  uploadedAt: string;
+  sharepointUrl: string;
+  createdAt: Date;
+}

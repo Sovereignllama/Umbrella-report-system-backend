@@ -8,6 +8,7 @@ import {
 } from '../services/twilioService';
 import { getOrCreateFolder, uploadFile, getFolderByPath } from '../services/sharepointService';
 import { parseSmsDate } from '../utils/dateParser';
+import { SignInOutFormRepository } from '../repositories/SignInOutFormRepository';
 
 const router = Router();
 
@@ -52,6 +53,7 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
       NumMedia: numMediaStr = '0',
       MediaUrl0: mediaUrl,
       MediaContentType0: mediaContentType,
+      From: senderPhone = '',
     } = req.body;
 
     const numMedia = parseInt(numMediaStr);
@@ -130,6 +132,17 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     const uploadResult = await uploadFile(monthFolder.folderId, fileName, photoBuffer);
     
     console.log(`✅ Sign-in/out sheet uploaded successfully: ${uploadResult.webUrl}`);
+
+    // Save the upload record to the database
+    console.log(`💾 Saving record to database for ${dateStr}`);
+    await SignInOutFormRepository.create({
+      date: dateStr,
+      fileName: fileName,
+      uploadedBy: senderPhone,
+      sharepointUrl: uploadResult.webUrl,
+    });
+
+    console.log(`✅ Database record created successfully`);
 
     // Send success response via TwiML
     res.type('text/xml').send(
