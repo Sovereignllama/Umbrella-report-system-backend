@@ -82,8 +82,8 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     }
 
     // Validation 3: Parse the date from message body
-    const parsedDate = parseSmsDate(messageBody);
-    if (!parsedDate) {
+    const parseResult = parseSmsDate(messageBody);
+    if (!parseResult) {
       res.type('text/xml').send(
         generateTwiMLResponse(
           "I couldn't understand the date. Please send a photo with the date in one of these formats: Feb 16, feb16, 2/16, or February 16"
@@ -91,6 +91,8 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
       );
       return;
     }
+
+    const { date: parsedDate, pageNumber } = parseResult;
 
     // Format date for filename and folder structure
     const year = parsedDate.getUTCFullYear();
@@ -106,7 +108,11 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     
     // Get file extension from content type
     const extension = getExtensionFromMimeType(mediaContentType);
-    const fileName = `${dateStr}.${extension}`;
+    
+    // Build filename with optional page number
+    const fileName = pageNumber 
+      ? `${dateStr}_${pageNumber}.${extension}` 
+      : `${dateStr}.${extension}`;
 
     // Download the photo from Twilio
     console.log(`📥 Downloading photo from Twilio: ${mediaUrl}`);
@@ -133,6 +139,13 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     
     console.log(`✅ Sign-in/out sheet uploaded successfully: ${uploadResult.webUrl}`);
 
+    // Delete existing record for this date and filename to implement replace behavior
+    console.log(`🗑️  Checking for existing record with date=${dateStr} and fileName=${fileName}`);
+    const deleted = await SignInOutFormRepository.deleteByDateAndFileName(dateStr, fileName);
+    if (deleted) {
+      console.log(`🗑️  Deleted existing record for ${fileName}`);
+    }
+
     // Save the upload record to the database
     console.log(`💾 Saving record to database for ${dateStr}`);
     await SignInOutFormRepository.create({
@@ -144,9 +157,13 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
 
     console.log(`✅ Database record created successfully`);
 
-    // Send success response via TwiML
+    // Send success response via TwiML with optional page number
+    const successMessage = pageNumber
+      ? `✅ Sign-in/out sheet (page ${pageNumber}) uploaded for ${dateStr}`
+      : `✅ Sign-in/out sheet uploaded for ${dateStr}`;
+    
     res.type('text/xml').send(
-      generateTwiMLResponse(`✅ Sign-in/out sheet uploaded for ${dateStr}`)
+      generateTwiMLResponse(successMessage)
     );
   } catch (error) {
     console.error('Error processing SMS webhook:', error);

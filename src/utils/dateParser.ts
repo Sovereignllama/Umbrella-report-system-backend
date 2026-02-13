@@ -104,51 +104,60 @@ export function parseDate(val: any): Date | null {
 /**
  * Parse flexible SMS date formats and default to current year
  * Supports formats like:
- * - "Feb 16" → 2026-02-16
- * - "feb 16" → 2026-02-16
- * - "February 16" → 2026-02-16
- * - "feb16" → 2026-02-16
- * - "2/16" → 2026-02-16
+ * - "Feb 16" → { date: 2026-02-16, pageNumber: null }
+ * - "feb 16" → { date: 2026-02-16, pageNumber: null }
+ * - "February 16" → { date: 2026-02-16, pageNumber: null }
+ * - "feb16" → { date: 2026-02-16, pageNumber: null }
+ * - "2/16" → { date: 2026-02-16, pageNumber: null }
+ * - "Feb 16 2" → { date: 2026-02-16, pageNumber: 2 }
+ * - "feb16 2" → { date: 2026-02-16, pageNumber: 2 }
+ * - "2/16 3" → { date: 2026-02-16, pageNumber: 3 }
  * 
- * Returns Date object set to noon UTC, or null if parsing fails
+ * Returns object with date set to noon UTC and optional page number, or null if parsing fails
  */
-export function parseSmsDate(str: string): Date | null {
+export function parseSmsDate(str: string): { date: Date; pageNumber: number | null } | null {
   if (!str) return null;
   
   const cleaned = str.trim();
   const currentYear = new Date().getUTCFullYear();
   
-  // Try "Month Day" format (e.g., "Feb 16", "February 16")
-  const monthDayMatch = cleaned.match(/^([A-Za-z]+)\s+(\d{1,2})$/i);
+  // Try "Month Day [PageNumber]" format (e.g., "Feb 16", "Feb 16 2", "February 16 3")
+  const monthDayMatch = cleaned.match(/^([A-Za-z]+)\s+(\d{1,2})(?:\s+(\d+))?$/i);
   if (monthDayMatch) {
     const month = MONTH_MAP[monthDayMatch[1].toLowerCase()];
     if (month !== undefined) {
       const day = parseInt(monthDayMatch[2]);
       if (day >= 1 && day <= 31) {
-        return new Date(Date.UTC(currentYear, month, day, 12, 0, 0));
+        const date = new Date(Date.UTC(currentYear, month, day, 12, 0, 0));
+        const pageNumber = monthDayMatch[3] ? parseInt(monthDayMatch[3]) : null;
+        return { date, pageNumber };
       }
     }
   }
   
-  // Try "MonthDay" format without space (e.g., "feb16")
-  const monthDayNoSpaceMatch = cleaned.match(/^([A-Za-z]+)(\d{1,2})$/i);
+  // Try "MonthDay [PageNumber]" format without space (e.g., "feb16", "feb16 2")
+  const monthDayNoSpaceMatch = cleaned.match(/^([A-Za-z]+)(\d{1,2})(?:\s+(\d+))?$/i);
   if (monthDayNoSpaceMatch) {
     const month = MONTH_MAP[monthDayNoSpaceMatch[1].toLowerCase()];
     if (month !== undefined) {
       const day = parseInt(monthDayNoSpaceMatch[2]);
       if (day >= 1 && day <= 31) {
-        return new Date(Date.UTC(currentYear, month, day, 12, 0, 0));
+        const date = new Date(Date.UTC(currentYear, month, day, 12, 0, 0));
+        const pageNumber = monthDayNoSpaceMatch[3] ? parseInt(monthDayNoSpaceMatch[3]) : null;
+        return { date, pageNumber };
       }
     }
   }
   
-  // Try "M/D" or "MM/DD" format (e.g., "2/16", "02/16")
-  const slashMatch = cleaned.match(/^(\d{1,2})\/(\d{1,2})$/);
+  // Try "M/D [PageNumber]" or "MM/DD [PageNumber]" format (e.g., "2/16", "2/16 3")
+  const slashMatch = cleaned.match(/^(\d{1,2})\/(\d{1,2})(?:\s+(\d+))?$/);
   if (slashMatch) {
     const month = parseInt(slashMatch[1]) - 1; // 0-indexed
     const day = parseInt(slashMatch[2]);
     if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
-      return new Date(Date.UTC(currentYear, month, day, 12, 0, 0));
+      const date = new Date(Date.UTC(currentYear, month, day, 12, 0, 0));
+      const pageNumber = slashMatch[3] ? parseInt(slashMatch[3]) : null;
+      return { date, pageNumber };
     }
   }
   

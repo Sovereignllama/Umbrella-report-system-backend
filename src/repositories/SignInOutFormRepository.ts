@@ -69,4 +69,12 @@ export class SignInOutFormRepository {
     );
     return (result.rowCount ?? 0) > 0;
   }
+
+  static async deleteByDateAndFileName(date: string, fileName: string): Promise<boolean> {
+    const result = await query(
+      'DELETE FROM sign_in_out_forms WHERE date = $1 AND file_name = $2',
+      [date, fileName]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
 }
