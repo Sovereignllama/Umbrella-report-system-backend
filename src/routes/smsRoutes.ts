@@ -6,7 +6,7 @@ import {
   validateTwilioSignature,
   isImageContentType,
 } from '../services/twilioService';
-import { getOrCreateFolder, uploadFile } from '../services/sharepointService';
+import { getOrCreateFolder, uploadFile, getFolderByPath } from '../services/sharepointService';
 import { parseSmsDate } from '../utils/dateParser';
 
 const router = Router();
@@ -26,18 +26,13 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Construct the full URL for validation (need protocol, host, and path)
-    // Use explicit webhook URL if configured, otherwise construct from request
+    // Use explicit webhook URL if configured (required behind reverse proxies like Render)
     const webhookUrl = process.env.TWILIO_WEBHOOK_URL;
     let url: string;
     if (webhookUrl) {
       url = webhookUrl;
     } else {
-      // Get protocol from proxy header or fallback to req.protocol
-      const forwardedProto = req.headers['x-forwarded-proto'];
-      const protocol = (forwardedProto === 'https' || forwardedProto === 'http') 
-        ? forwardedProto 
-        : req.protocol;
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
       const host = req.get('host');
       url = `${protocol}://${host}${req.originalUrl}`;
     }
@@ -113,18 +108,18 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     const photoBuffer = await downloadTwilioMedia(mediaUrl);
 
     // Create folder structure: Track/sign_in_out/{year}/{month_name}/
+    // Navigate to existing Track/sign_in_out folder, then create year/month as needed
     console.log(`📁 Creating SharePoint folder structure: Track/sign_in_out/${year}/${monthName}/`);
     
-    // Get or create Track folder
-    const trackFolder = await getOrCreateFolder(':root:', 'Track');
+    const signInOutFolder = await getFolderByPath('Track/sign_in_out');
+    if (!signInOutFolder) {
+      throw new Error('Track/sign_in_out folder not found in SharePoint');
+    }
     
-    // Get or create sign_in_out folder
-    const signInOutFolder = await getOrCreateFolder(trackFolder.folderId, 'sign_in_out');
+    // Get or create year folder (e.g., "2026")
+    const yearFolder = await getOrCreateFolder(signInOutFolder.id, String(year));
     
-    // Get or create year folder
-    const yearFolder = await getOrCreateFolder(signInOutFolder.folderId, String(year));
-    
-    // Get or create month folder
+    // Get or create month folder (e.g., "February")
     const monthFolder = await getOrCreateFolder(yearFolder.folderId, monthName);
 
     // Upload the photo to SharePoint
