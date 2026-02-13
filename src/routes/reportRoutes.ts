@@ -239,6 +239,18 @@ router.post(
         equipmentLinesCount: mappedEquipmentLines.length,
       });
 
+      // Determine supervisor for report (preserve original supervisor when overwriting)
+      let supervisorId = req.user.id;
+      let supervisorName = req.user.name || 'Unknown Supervisor';
+      if (existingReport) {
+        supervisorId = existingReport.supervisorId;
+        // Look up original supervisor name
+        const originalSupervisor = await UserRepository.findById(existingReport.supervisorId);
+        if (originalSupervisor) {
+          supervisorName = originalSupervisor.name;
+        }
+      }
+
       // Create report in database
       const newReport = await DailyReportRepository.create({
         projectId: isValidProjectUuid ? projectId : null, // null for SharePoint-based projects without DB record
@@ -246,7 +258,7 @@ router.post(
         projectName,
         weekFolder,
         reportDate: new Date(reportDate),
-        supervisorId: existingReport ? existingReport.supervisorId : req.user.id,
+        supervisorId: supervisorId,
         notes,
         materials,
         delays,
@@ -273,14 +285,6 @@ router.post(
 
       // Generate and upload DFA Excel to SharePoint asynchronously (non-blocking)
       if (clientName && displayProjectName && weekFolder) {
-        let supervisorName = req.user.name || 'Unknown Supervisor';
-        if (existingReport) {
-          // Look up original supervisor name when overwriting
-          const originalSupervisor = await UserRepository.findById(existingReport.supervisorId);
-          if (originalSupervisor) {
-            supervisorName = originalSupervisor.name;
-          }
-        }
         setImmediate(async () => {
           try {
             console.log('Generating DFA Excel...');
