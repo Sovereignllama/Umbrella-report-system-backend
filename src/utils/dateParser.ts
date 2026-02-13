@@ -100,3 +100,57 @@ export function parseDate(val: any): Date | null {
   
   return null;
 }
+
+/**
+ * Parse flexible SMS date formats and default to current year
+ * Supports formats like:
+ * - "Feb 16" → 2026-02-16
+ * - "feb 16" → 2026-02-16
+ * - "February 16" → 2026-02-16
+ * - "feb16" → 2026-02-16
+ * - "2/16" → 2026-02-16
+ * 
+ * Returns Date object set to noon UTC, or null if parsing fails
+ */
+export function parseSmsDate(str: string): Date | null {
+  if (!str) return null;
+  
+  const cleaned = str.trim();
+  const currentYear = new Date().getUTCFullYear();
+  
+  // Try "Month Day" format (e.g., "Feb 16", "February 16")
+  const monthDayMatch = cleaned.match(/^([A-Za-z]+)\s+(\d{1,2})$/i);
+  if (monthDayMatch) {
+    const month = MONTH_MAP[monthDayMatch[1].toLowerCase()];
+    if (month !== undefined) {
+      const day = parseInt(monthDayMatch[2]);
+      if (day >= 1 && day <= 31) {
+        return new Date(Date.UTC(currentYear, month, day, 12, 0, 0));
+      }
+    }
+  }
+  
+  // Try "MonthDay" format without space (e.g., "feb16")
+  const monthDayNoSpaceMatch = cleaned.match(/^([A-Za-z]+)(\d{1,2})$/i);
+  if (monthDayNoSpaceMatch) {
+    const month = MONTH_MAP[monthDayNoSpaceMatch[1].toLowerCase()];
+    if (month !== undefined) {
+      const day = parseInt(monthDayNoSpaceMatch[2]);
+      if (day >= 1 && day <= 31) {
+        return new Date(Date.UTC(currentYear, month, day, 12, 0, 0));
+      }
+    }
+  }
+  
+  // Try "M/D" or "MM/DD" format (e.g., "2/16", "02/16")
+  const slashMatch = cleaned.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (slashMatch) {
+    const month = parseInt(slashMatch[1]) - 1; // 0-indexed
+    const day = parseInt(slashMatch[2]);
+    if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+      return new Date(Date.UTC(currentYear, month, day, 12, 0, 0));
+    }
+  }
+  
+  return null;
+}

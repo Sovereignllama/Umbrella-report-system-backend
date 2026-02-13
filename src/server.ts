@@ -12,6 +12,7 @@ import dashboardRoutes from './routes/dashboardRoutes';
 import configRoutes from './routes/configRoutes';
 import settingsRoutes from './routes/settingsRoutes';
 import timeRoutes from './routes/timeRoutes';
+import smsRoutes from './routes/smsRoutes';
 
 dotenv.config();
 
@@ -41,6 +42,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/time', timeRoutes);
+app.use('/api/sms', smsRoutes);
 
 // Error handling
 app.use(notFoundHandler);
