@@ -14,6 +14,7 @@ import {
   ReportLaborLineRepository,
   ReportEquipmentLineRepository,
   ReportAttachmentRepository,
+  UserRepository,
 } from '../repositories';
 import {
   archivePreviousReport,
@@ -245,7 +246,7 @@ router.post(
         projectName,
         weekFolder,
         reportDate: new Date(reportDate),
-        supervisorId: req.user.id,
+        supervisorId: existingReport ? existingReport.supervisorId : req.user.id,
         notes,
         materials,
         delays,
@@ -272,7 +273,14 @@ router.post(
 
       // Generate and upload DFA Excel to SharePoint asynchronously (non-blocking)
       if (clientName && displayProjectName && weekFolder) {
-        const supervisorName = req.user.name || 'Unknown Supervisor';
+        let supervisorName = req.user.name || 'Unknown Supervisor';
+        if (existingReport) {
+          // Look up original supervisor name when overwriting
+          const originalSupervisor = await UserRepository.findById(existingReport.supervisorId);
+          if (originalSupervisor) {
+            supervisorName = originalSupervisor.name;
+          }
+        }
         setImmediate(async () => {
           try {
             console.log('Generating DFA Excel...');
