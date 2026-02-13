@@ -1,0 +1,139 @@
+import { Router, Request, Response } from 'express';
+import {
+  generateTwiMLResponse,
+  downloadTwilioMedia,
+  getExtensionFromMimeType,
+  validateTwilioSignature,
+  isImageContentType,
+} from '../services/twilioService';
+import { getOrCreateFolder, uploadFile } from '../services/sharepointService';
+import { parseSmsDate } from '../utils/dateParser';
+
+const router = Router();
+
+/**
+ * Twilio webhook for incoming SMS/MMS messages
+ * POST /api/sms/incoming
+ * 
+ * Receives photos of daily sign-in/out sheets and uploads them to SharePoint
+ */
+router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Validate Twilio signature for security
+    const twilioSignature = req.headers['x-twilio-signature'] as string;
+    if (!twilioSignature) {
+      res.status(403).send('Forbidden: Missing signature');
+      return;
+    }
+
+    // Construct the full URL for validation (need protocol, host, and path)
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const url = `${protocol}://${host}${req.originalUrl}`;
+    
+    const isValid = validateTwilioSignature(url, req.body, twilioSignature);
+    if (!isValid) {
+      console.warn('Invalid Twilio signature received');
+      res.status(403).send('Forbidden: Invalid signature');
+      return;
+    }
+
+    const {
+      Body: messageBody = '',
+      NumMedia: numMediaStr = '0',
+      MediaUrl0: mediaUrl,
+      MediaContentType0: mediaContentType,
+    } = req.body;
+
+    const numMedia = parseInt(numMediaStr);
+
+    // Validation 1: Check for exactly one photo
+    if (numMedia === 0) {
+      res.type('text/xml').send(
+        generateTwiMLResponse('Please attach a photo of the sign-in/out sheet.')
+      );
+      return;
+    }
+
+    if (numMedia > 1) {
+      res.type('text/xml').send(
+        generateTwiMLResponse('Please send only one photo per message.')
+      );
+      return;
+    }
+
+    // Validation 2: Check that media is an image
+    if (!isImageContentType(mediaContentType)) {
+      res.type('text/xml').send(
+        generateTwiMLResponse('Please send an image file (JPEG, PNG, etc.).')
+      );
+      return;
+    }
+
+    // Validation 3: Parse the date from message body
+    const parsedDate = parseSmsDate(messageBody);
+    if (!parsedDate) {
+      res.type('text/xml').send(
+        generateTwiMLResponse(
+          'I couldn\'t understand the date. Please send a photo with the date in this format: Feb 16'
+        )
+      );
+      return;
+    }
+
+    // Format date for filename and folder structure
+    const year = parsedDate.getUTCFullYear();
+    const month = parsedDate.getUTCMonth();
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    const monthName = monthNames[month];
+    
+    // Format date as YYYY-MM-DD for filename
+    const dateStr = parsedDate.toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    // Get file extension from content type
+    const extension = getExtensionFromMimeType(mediaContentType);
+    const fileName = `${dateStr}.${extension}`;
+
+    // Download the photo from Twilio
+    console.log(`📥 Downloading photo from Twilio: ${mediaUrl}`);
+    const photoBuffer = await downloadTwilioMedia(mediaUrl);
+
+    // Create folder structure: Track/sign_in_out/{year}/{month_name}/
+    console.log(`📁 Creating SharePoint folder structure: Track/sign_in_out/${year}/${monthName}/`);
+    
+    // Get or create Track folder
+    const trackFolder = await getOrCreateFolder(':root:', 'Track');
+    
+    // Get or create sign_in_out folder
+    const signInOutFolder = await getOrCreateFolder(trackFolder.folderId, 'sign_in_out');
+    
+    // Get or create year folder
+    const yearFolder = await getOrCreateFolder(signInOutFolder.folderId, String(year));
+    
+    // Get or create month folder
+    const monthFolder = await getOrCreateFolder(yearFolder.folderId, monthName);
+
+    // Upload the photo to SharePoint
+    console.log(`☁️  Uploading file: ${fileName}`);
+    const result = await uploadFile(monthFolder.folderId, fileName, photoBuffer);
+    
+    console.log(`✅ Sign-in/out sheet uploaded successfully: ${result.webUrl}`);
+
+    // Send success response via TwiML
+    res.type('text/xml').send(
+      generateTwiMLResponse(`✅ Sign-in/out sheet uploaded for ${dateStr}`)
+    );
+  } catch (error) {
+    console.error('Error processing SMS webhook:', error);
+    
+    // Send error response via TwiML
+    res.type('text/xml').send(
+      generateTwiMLResponse('Sorry, there was an error processing your request. Please try again.')
+    );
+  }
+});
+
+export default router;
