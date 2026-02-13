@@ -269,7 +269,7 @@ router.post(
         projectName,
         weekFolder,
         reportDate: new Date(reportDate),
-        supervisorId: supervisorId,
+        supervisorId,
         notes,
         materials,
         delays,
