@@ -49,6 +49,9 @@ const upload = multer({
 
 const router = Router();
 
+// Constants
+const DEFAULT_SUPERVISOR_NAME = 'Unknown Supervisor';
+
 // ============================================
 // CHECK FOR EXISTING REPORT
 // ============================================
@@ -241,13 +244,18 @@ router.post(
 
       // Determine supervisor for report (preserve original supervisor when overwriting)
       let supervisorId = req.user.id;
-      let supervisorName = req.user.name || 'Unknown Supervisor';
+      let supervisorName = req.user.name || DEFAULT_SUPERVISOR_NAME;
       if (existingReport) {
         supervisorId = existingReport.supervisorId;
         // Look up original supervisor name
-        const originalSupervisor = await UserRepository.findById(existingReport.supervisorId);
-        if (originalSupervisor) {
-          supervisorName = originalSupervisor.name;
+        try {
+          const originalSupervisor = await UserRepository.findById(existingReport.supervisorId);
+          if (originalSupervisor) {
+            supervisorName = originalSupervisor.name;
+          }
+        } catch (error) {
+          console.warn('Failed to look up original supervisor name:', error);
+          // Continue with default supervisor name
         }
       }
 
