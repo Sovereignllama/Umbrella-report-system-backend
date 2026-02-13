@@ -32,7 +32,10 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     if (webhookUrl) {
       url = webhookUrl;
     } else {
-      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+      // Get protocol from proxy header, taking first value if multiple, or fallback to req.protocol
+      const forwardedProto = req.headers['x-forwarded-proto'];
+      const protoValue = typeof forwardedProto === 'string' ? forwardedProto.split(',')[0].trim() : forwardedProto;
+      const protocol = (protoValue === 'https' || protoValue === 'http') ? protoValue : req.protocol;
       const host = req.get('host');
       url = `${protocol}://${host}${req.originalUrl}`;
     }
