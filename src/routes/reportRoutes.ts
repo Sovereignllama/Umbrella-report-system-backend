@@ -14,6 +14,7 @@ import {
   ReportLaborLineRepository,
   ReportEquipmentLineRepository,
   ReportAttachmentRepository,
+  UserRepository,
 } from '../repositories';
 import {
   archivePreviousReport,
@@ -47,6 +48,9 @@ const upload = multer({
 });
 
 const router = Router();
+
+// Constants
+const DEFAULT_SUPERVISOR_NAME = 'Unknown Supervisor';
 
 // ============================================
 // CHECK FOR EXISTING REPORT
@@ -238,6 +242,26 @@ router.post(
         equipmentLinesCount: mappedEquipmentLines.length,
       });
 
+      // Determine supervisor for report (preserve original supervisor when overwriting)
+      let supervisorId = req.user.id;
+      let supervisorName = req.user.name || DEFAULT_SUPERVISOR_NAME;
+      if (existingReport) {
+        supervisorId = existingReport.supervisorId;
+        // Look up original supervisor name
+        try {
+          const originalSupervisor = await UserRepository.findById(existingReport.supervisorId);
+          if (originalSupervisor) {
+            supervisorName = originalSupervisor.name || DEFAULT_SUPERVISOR_NAME;
+          } else {
+            console.warn(`Original supervisor not found (ID: ${existingReport.supervisorId})`);
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.warn(`Failed to look up original supervisor (ID: ${existingReport.supervisorId}): ${errorMessage}`);
+          // Continue with default supervisor name
+        }
+      }
+
       // Create report in database
       const newReport = await DailyReportRepository.create({
         projectId: isValidProjectUuid ? projectId : null, // null for SharePoint-based projects without DB record
@@ -245,7 +269,7 @@ router.post(
         projectName,
         weekFolder,
         reportDate: new Date(reportDate),
-        supervisorId: req.user.id,
+        supervisorId,
         notes,
         materials,
         delays,
@@ -272,7 +296,6 @@ router.post(
 
       // Generate and upload DFA Excel to SharePoint asynchronously (non-blocking)
       if (clientName && displayProjectName && weekFolder) {
-        const supervisorName = req.user.name || 'Unknown Supervisor';
         setImmediate(async () => {
           try {
             console.log('Generating DFA Excel...');
