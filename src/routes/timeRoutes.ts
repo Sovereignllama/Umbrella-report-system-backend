@@ -518,6 +518,13 @@ router.post(
 
       // Parse date for folder structure
       const parsedDate = new Date(date + 'T00:00:00Z');
+      
+      // Validate parsed date
+      if (isNaN(parsedDate.getTime())) {
+        res.status(400).json({ error: 'Invalid date provided' });
+        return;
+      }
+      
       const year = parsedDate.getUTCFullYear();
       const month = parsedDate.getUTCMonth();
       const monthNames = [
@@ -552,7 +559,12 @@ router.post(
       console.log(`✅ Sign-in/out sheet uploaded successfully: ${uploadResult.webUrl}`);
 
       // Save record to database
-      const uploadedBy = req.user?.email || 'unknown';
+      const uploadedBy = req.user?.email;
+      if (!uploadedBy) {
+        res.status(401).json({ error: 'User email not found in authentication context' });
+        return;
+      }
+      
       console.log(`💾 Saving record to database for ${date}`);
       const dbRecord = await SignInOutFormRepository.create({
         date: date,
