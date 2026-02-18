@@ -107,7 +107,7 @@ async function findExistingProjectBlock(
     const checkCell = `C${currentRow + 2}`;
     
     try {
-      const values = await readExcelRange(itemId, sheetName, checkCell, SHAREPOINT_MAIN_DRIVE_ID!);
+      const values = await readExcelRange(itemId, sheetName, checkCell, SHAREPOINT_MAIN_DRIVE_ID);
       
       // Check if cell has a value
       if (values && values.length > 0 && values[0] && values[0][0]) {
@@ -157,7 +157,7 @@ async function findNextProjectBlock(itemId: string, sheetName: string): Promise<
     const checkCell = `C${currentRow + 2}`;
     
     try {
-      const values = await readExcelRange(itemId, sheetName, checkCell, SHAREPOINT_MAIN_DRIVE_ID!);
+      const values = await readExcelRange(itemId, sheetName, checkCell, SHAREPOINT_MAIN_DRIVE_ID);
       
       // Check if cell is empty
       if (!values || values.length === 0 || !values[0] || !values[0][0] || values[0][0] === '') {
@@ -221,7 +221,7 @@ async function clearProjectBlock(
   });
   
   console.log(`Clearing project block at row ${startRow}`);
-  await batchUpdateExcelRanges(itemId, updates, SHAREPOINT_MAIN_DRIVE_ID!);
+  await batchUpdateExcelRanges(itemId, updates, SHAREPOINT_MAIN_DRIVE_ID);
 }
 
 /**
@@ -360,12 +360,17 @@ export async function generateAndUploadTracker(
 ): Promise<void> {
   console.log(`Starting tracker update for report ${report.id}, week: ${weekFolder}`);
   
+  // Validate that main drive ID is configured
+  if (!SHAREPOINT_MAIN_DRIVE_ID) {
+    throw new Error('SHAREPOINT_DRIVE_ID environment variable is not configured. Cannot update tracker.');
+  }
+  
   // 1. Determine tracker file path and name
   const trackerFileName = `Tracker_${formatWeekName(weekFolder)}.xlsx`;
   const trackerPath = `Track/${weekFolder}/${trackerFileName}`;
   
   // 2. Check if tracker already exists in SharePoint
-  let itemId = await getFileItemId(trackerPath, SHAREPOINT_MAIN_DRIVE_ID!);
+  let itemId = await getFileItemId(trackerPath, SHAREPOINT_MAIN_DRIVE_ID);
   
   // 3. If not, upload a fresh template
   if (!itemId) {
@@ -433,7 +438,7 @@ export async function generateAndUploadTracker(
   console.log(`Prepared ${updates.length} cell range updates`);
   
   // 9. Write cells via Graph Workbooks API (batched)
-  await batchUpdateExcelRanges(itemId, updates, SHAREPOINT_MAIN_DRIVE_ID!);
+  await batchUpdateExcelRanges(itemId, updates, SHAREPOINT_MAIN_DRIVE_ID);
   
   console.log(`Tracker updated successfully for week: ${weekFolder}`);
 }
