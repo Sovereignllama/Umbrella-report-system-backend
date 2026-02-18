@@ -60,7 +60,7 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
  */
 function getWeekFolderNameForDate(date: Date): string {
   const dayOfWeek = date.getDay();
-  const monday = new Date(date);
+  const monday = new Date(date.getTime());
   monday.setDate(date.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
   monday.setHours(0, 0, 0, 0);
 
@@ -184,10 +184,17 @@ router.post(
 
       // Compute the authoritative weekFolder from reportDate server-side
       const parsedReportDate = new Date(reportDate);
+      
+      // Validate that the date is valid
+      if (isNaN(parsedReportDate.getTime())) {
+        res.status(400).json({ error: 'Invalid reportDate format' });
+        return;
+      }
+      
       const weekFolder = getWeekFolderNameForDate(parsedReportDate);
 
       // Warn if client-supplied weekFolder doesn't match server-computed value
-      if (clientWeekFolder && clientWeekFolder !== weekFolder) {
+      if (clientWeekFolder !== undefined && clientWeekFolder !== null && clientWeekFolder !== weekFolder) {
         console.warn(
           `Week folder mismatch: client sent "${clientWeekFolder}" but server computed "${weekFolder}" for date ${reportDate}`
         );
