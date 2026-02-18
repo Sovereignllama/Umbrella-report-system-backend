@@ -4,7 +4,7 @@ import { DailyReport } from '../types/database';
 import { ReportLaborLineRepository, ReportEquipmentLineRepository, DailyReportRepository } from '../repositories';
 import { readFileByPath, listFilesInFolder, uploadFile, getOrCreateFolder, archiveFile, renameFile } from './sharepointService';
 
-const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
+const DEFAULT_CONFIG_BASE_PATH = '_backend/Umbrella Report Config';
 
 interface SkillRate {
   name: string;

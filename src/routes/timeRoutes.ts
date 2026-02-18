@@ -15,7 +15,7 @@ const router = Router();
 // Configure multer for file uploads (store in memory)
 const upload = multer({ storage: multer.memoryStorage() });
 
-const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
+const DEFAULT_CONFIG_BASE_PATH = '_backend/Umbrella Report Config';
 
 // Month abbreviations for date formatting
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
