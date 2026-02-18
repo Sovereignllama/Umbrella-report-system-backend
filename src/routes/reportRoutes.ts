@@ -51,6 +51,7 @@ const router = Router();
 
 // Constants
 const DEFAULT_SUPERVISOR_NAME = 'Unknown Supervisor';
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
  * Helper: Get week folder name for a given date (Mon-Sun format)
@@ -66,9 +67,8 @@ function getWeekFolderNameForDate(date: Date): string {
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
 
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const monMonth = months[monday.getMonth()];
-  const sunMonth = months[sunday.getMonth()];
+  const monMonth = MONTH_NAMES[monday.getMonth()];
+  const sunMonth = MONTH_NAMES[sunday.getMonth()];
 
   if (monMonth === sunMonth) {
     return `${monMonth} ${monday.getDate()}-${sunday.getDate()}`;
