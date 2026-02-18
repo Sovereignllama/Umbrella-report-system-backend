@@ -214,7 +214,7 @@ router.post(
         startTime: line.start_time || line.startTime || null,
         endTime: line.end_time || line.endTime || null,
         thirtyMinDeduction: line.thirty_min_deduction || line.thirtyMinDeduction || false,
-        loa: line.loa || false,
+        loa: line.on_loa || line.loa || false,
       }));
 
       // Map equipment lines to the expected format
@@ -386,22 +386,25 @@ router.get(
       const equipmentLines = await ReportEquipmentLineRepository.findByReportId(id);
 
       // Map labor lines to camelCase
-      const mappedLaborLines = laborLines.map((line: any) => ({
-        id: line.id,
-        reportId: line.report_id || line.reportId,
-        employeeId: line.employee_id || line.employeeId,
-        employeeName: line.employee_name || line.employeeName,
-        skillName: line.skill_name || line.skillName,
-        startTime: line.start_time || line.startTime,
-        endTime: line.end_time || line.endTime,
-        regularHours: line.regular_hours || line.regularHours,
-        otHours: line.ot_hours || line.otHours,
-        dtHours: line.dt_hours || line.dtHours,
-        workDescription: line.work_description || line.workDescription,
-        thirtyMinDeduction: line.thirty_min_deduction || line.thirtyMinDeduction || false,
-        onLoa: line.on_loa || line.onLoa || false,
-        loa: line.on_loa || line.onLoa || false,  // also expose as 'loa' for frontend compatibility
-      }));
+      const mappedLaborLines = laborLines.map((line: any) => {
+        const loaValue = line.on_loa || line.onLoa || false;
+        return {
+          id: line.id,
+          reportId: line.report_id || line.reportId,
+          employeeId: line.employee_id || line.employeeId,
+          employeeName: line.employee_name || line.employeeName,
+          skillName: line.skill_name || line.skillName,
+          startTime: line.start_time || line.startTime,
+          endTime: line.end_time || line.endTime,
+          regularHours: line.regular_hours || line.regularHours,
+          otHours: line.ot_hours || line.otHours,
+          dtHours: line.dt_hours || line.dtHours,
+          workDescription: line.work_description || line.workDescription,
+          thirtyMinDeduction: line.thirty_min_deduction || line.thirtyMinDeduction || false,
+          onLoa: loaValue,
+          loa: loaValue,  // also expose as 'loa' for frontend compatibility
+        };
+      });
 
       res.json({
         report,
