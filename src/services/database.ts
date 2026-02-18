@@ -229,6 +229,22 @@ export async function runMigrations(): Promise<void> {
         sql: `
           ALTER TABLE report_labor_lines ADD COLUMN IF NOT EXISTS thirty_min_deduction BOOLEAN DEFAULT false;
         `
+      },
+      {
+        name: '016_update_config_paths',
+        sql: `
+          UPDATE app_settings 
+          SET value = '_backend/Umbrella Report Config/site_employees',
+              updated_at = NOW()
+          WHERE key = 'employeesPath' 
+            AND value = 'Umbrella Report Config/site_employees';
+
+          UPDATE app_settings 
+          SET value = '_backend/Umbrella Report Config/equipment',
+              updated_at = NOW()
+          WHERE key = 'equipmentPath' 
+            AND value = 'Umbrella Report Config/equipment';
+        `
       }
     ];
 

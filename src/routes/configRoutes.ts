@@ -12,7 +12,7 @@ import ExcelJS from 'exceljs';
 const router = Router();
 
 // Default paths (can be overridden via settings)
-const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
+const DEFAULT_CONFIG_BASE_PATH = '_backend/Umbrella Report Config';
 const DEFAULT_PROJECTS_BASE_PATH = 'Projects';
 
 // Route-level timeout for SharePoint-dependent endpoints (60 seconds)
