@@ -775,6 +775,7 @@ router.get(
         dtHours: number;
         startTime: string | null;
         endTime: string | null;
+        onLoa: boolean;
       }>(
         `SELECT 
           dr.report_date,
@@ -784,7 +785,8 @@ router.get(
           rll.ot_hours,
           rll.dt_hours,
           rll.start_time,
-          rll.end_time
+          rll.end_time,
+          rll.on_loa
          FROM report_labor_lines rll
          INNER JOIN daily_reports dr ON rll.report_id = dr.id
          LEFT JOIN projects p ON dr.project_id = p.id
@@ -803,6 +805,7 @@ router.get(
         startTime: string | null;
         endTime: string | null;
         totalHours: number;
+        loa: boolean;
       }
 
       interface DateData {
@@ -845,6 +848,8 @@ router.get(
           if (row.endTime && (!existingProject.endTime || row.endTime > existingProject.endTime)) {
             existingProject.endTime = row.endTime;
           }
+          // Aggregate loa flag: true if any row for this project has on_loa = true
+          existingProject.loa = existingProject.loa || Boolean(row.onLoa);
         } else {
           dateData.projects.push({
             projectId: row.projectId,
@@ -852,6 +857,7 @@ router.get(
             startTime: row.startTime,
             endTime: row.endTime,
             totalHours,
+            loa: Boolean(row.onLoa),
           });
         }
 

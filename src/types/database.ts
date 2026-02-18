@@ -88,6 +88,7 @@ export interface ReportLaborLine {
   dtHours: number;
   workDescription: string;
   thirtyMinDeduction?: boolean;
+  onLoa?: boolean;
 }
 
 export interface ReportEquipmentLine {

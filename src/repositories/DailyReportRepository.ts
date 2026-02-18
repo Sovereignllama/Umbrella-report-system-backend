@@ -23,6 +23,7 @@ export interface CreateDailyReportData {
     dtHours: number;
     workDescription?: string;
     thirtyMinDeduction?: boolean;
+    loa?: boolean;
   }>;
   equipmentLines: Array<{
     equipmentId: string;
@@ -120,8 +121,8 @@ export class DailyReportRepository {
       if (data.laborLines.length > 0) {
         const laborValues = data.laborLines
           .map((_line, idx) => {
-            const paramOffset = idx * 10;
-            return `($1, $${paramOffset + 2}, $${paramOffset + 3}, $${paramOffset + 4}, $${paramOffset + 5}, $${paramOffset + 6}, $${paramOffset + 7}, $${paramOffset + 8}, $${paramOffset + 9}, $${paramOffset + 10}, $${paramOffset + 11})`;
+            const paramOffset = idx * 11;
+            return `($1, $${paramOffset + 2}, $${paramOffset + 3}, $${paramOffset + 4}, $${paramOffset + 5}, $${paramOffset + 6}, $${paramOffset + 7}, $${paramOffset + 8}, $${paramOffset + 9}, $${paramOffset + 10}, $${paramOffset + 11}, $${paramOffset + 12})`;
           })
           .join(',');
 
@@ -139,12 +140,13 @@ export class DailyReportRepository {
             line.workDescription || '',
             line.startTime || null,
             line.endTime || null,
-            line.thirtyMinDeduction || false
+            line.thirtyMinDeduction || false,
+            line.loa || false
           );
         });
 
         await client.query(
-          `INSERT INTO report_labor_lines (report_id, employee_id, employee_name, skill_name, regular_hours, ot_hours, dt_hours, work_description, start_time, end_time, thirty_min_deduction)
+          `INSERT INTO report_labor_lines (report_id, employee_id, employee_name, skill_name, regular_hours, ot_hours, dt_hours, work_description, start_time, end_time, thirty_min_deduction, on_loa)
            VALUES ${laborValues}`,
           laborParams
         );
