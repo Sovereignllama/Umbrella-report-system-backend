@@ -5,9 +5,9 @@
 UPDATE app_settings 
 SET value = 'Umbrella Report Config/site_employees',
     updated_at = NOW()
-WHERE key = 'employeesPath' AND value LIKE '%_backend%';
+WHERE key = 'employeesPath' AND value LIKE '_backend/%';
 
 UPDATE app_settings 
 SET value = 'Umbrella Report Config/equipment',
     updated_at = NOW()
-WHERE key = 'equipmentPath' AND value LIKE '%_backend%';
+WHERE key = 'equipmentPath' AND value LIKE '_backend/%';
