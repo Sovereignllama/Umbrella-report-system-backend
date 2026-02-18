@@ -10,6 +10,9 @@ import {
   batchUpdateExcelRanges
 } from './sharepointService';
 
+// Main drive ID for tracker files (uploaded to Shared Documents)
+const SHAREPOINT_MAIN_DRIVE_ID = process.env.SHAREPOINT_DRIVE_ID;
+
 
 
 const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
@@ -104,7 +107,7 @@ async function findExistingProjectBlock(
     const checkCell = `C${currentRow + 2}`;
     
     try {
-      const values = await readExcelRange(itemId, sheetName, checkCell);
+      const values = await readExcelRange(itemId, sheetName, checkCell, SHAREPOINT_MAIN_DRIVE_ID!);
       
       // Check if cell has a value
       if (values && values.length > 0 && values[0] && values[0][0]) {
@@ -154,7 +157,7 @@ async function findNextProjectBlock(itemId: string, sheetName: string): Promise<
     const checkCell = `C${currentRow + 2}`;
     
     try {
-      const values = await readExcelRange(itemId, sheetName, checkCell);
+      const values = await readExcelRange(itemId, sheetName, checkCell, SHAREPOINT_MAIN_DRIVE_ID!);
       
       // Check if cell is empty
       if (!values || values.length === 0 || !values[0] || !values[0][0] || values[0][0] === '') {
@@ -218,7 +221,7 @@ async function clearProjectBlock(
   });
   
   console.log(`Clearing project block at row ${startRow}`);
-  await batchUpdateExcelRanges(itemId, updates);
+  await batchUpdateExcelRanges(itemId, updates, SHAREPOINT_MAIN_DRIVE_ID!);
 }
 
 /**
@@ -362,7 +365,7 @@ export async function generateAndUploadTracker(
   const trackerPath = `Track/${weekFolder}/${trackerFileName}`;
   
   // 2. Check if tracker already exists in SharePoint
-  let itemId = await getFileItemId(trackerPath);
+  let itemId = await getFileItemId(trackerPath, SHAREPOINT_MAIN_DRIVE_ID!);
   
   // 3. If not, upload a fresh template
   if (!itemId) {
@@ -430,7 +433,7 @@ export async function generateAndUploadTracker(
   console.log(`Prepared ${updates.length} cell range updates`);
   
   // 9. Write cells via Graph Workbooks API (batched)
-  await batchUpdateExcelRanges(itemId, updates);
+  await batchUpdateExcelRanges(itemId, updates, SHAREPOINT_MAIN_DRIVE_ID!);
   
   console.log(`Tracker updated successfully for week: ${weekFolder}`);
 }

@@ -758,26 +758,26 @@ function validateRangeAddress(rangeAddress: string): void {
 /**
  * Build Graph API URL for Excel workbook range operations
  */
-function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: string): string {
+function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: string, driveId: string = SHAREPOINT_CONFIG_DRIVE_ID!): string {
   // Validate inputs to prevent potential injection issues
   validateSheetName(sheetName);
   validateRangeAddress(rangeAddress);
   
   // For Graph Workbooks API, sheet names and range addresses are passed as string parameters
   // within the function syntax - they should not be URL-encoded
-  return `/drives/${SHAREPOINT_CONFIG_DRIVE_ID}/items/${encodeURIComponent(itemId)}/workbook/worksheets('${sheetName}')/range(address='${rangeAddress}')`;
+  return `/drives/${driveId}/items/${encodeURIComponent(itemId)}/workbook/worksheets('${sheetName}')/range(address='${rangeAddress}')`;
 }
 
 /**
  * Get file item ID by path (needed for Graph Workbooks API)
  */
-export async function getFileItemId(filePath: string): Promise<string | null> {
+export async function getFileItemId(filePath: string, driveId: string = SHAREPOINT_CONFIG_DRIVE_ID!): Promise<string | null> {
   try {
     const client = await getGraphClient();
     const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
     
     const response = await client.get<SharePointDriveItem>(
-      `/drives/${SHAREPOINT_CONFIG_DRIVE_ID}/root:/${encodedPath}`
+      `/drives/${driveId}/root:/${encodedPath}`
     );
     
     return response.data.id;
@@ -796,11 +796,12 @@ export async function getFileItemId(filePath: string): Promise<string | null> {
 export async function readExcelRange(
   itemId: string,
   sheetName: string,
-  rangeAddress: string
+  rangeAddress: string,
+  driveId: string = SHAREPOINT_CONFIG_DRIVE_ID!
 ): Promise<any[][]> {
   try {
     const client = await getGraphClient();
-    const url = buildWorkbookRangeUrl(itemId, sheetName, rangeAddress);
+    const url = buildWorkbookRangeUrl(itemId, sheetName, rangeAddress, driveId);
     const response = await client.get(url);
     
     return response.data.values || [];
@@ -844,7 +845,8 @@ export async function batchUpdateExcelRanges(
     sheetName: string;
     rangeAddress: string;
     values: any[][];
-  }>
+  }>,
+  driveId: string = SHAREPOINT_CONFIG_DRIVE_ID!
 ): Promise<void> {
   try {
     const client = await getGraphClient();
@@ -864,7 +866,7 @@ export async function batchUpdateExcelRanges(
       
       // Build batch requests using the same URL construction as buildWorkbookRangeUrl
       let batchRequests = batch.map((update, idx) => {
-        const sheetUrl = `/drives/${SHAREPOINT_CONFIG_DRIVE_ID}/items/${encodedItemId}/workbook/worksheets('${update.sheetName}')/range(address='${update.rangeAddress}')`;
+        const sheetUrl = `/drives/${driveId}/items/${encodedItemId}/workbook/worksheets('${update.sheetName}')/range(address='${update.rangeAddress}')`;
         return {
           id: String(idx + 1),
           method: 'PATCH',
