@@ -256,13 +256,13 @@ export async function runMigrations(): Promise<void> {
           SET value = 'Umbrella Report Config/site_employees',
               updated_at = NOW()
           WHERE key = 'employeesPath' 
-            AND value = '_backend/Umbrella Report Config/site_employees';
+            AND value LIKE '_backend/%';
 
           UPDATE app_settings 
           SET value = 'Umbrella Report Config/equipment',
               updated_at = NOW()
           WHERE key = 'equipmentPath' 
-            AND value = '_backend/Umbrella Report Config/equipment';
+            AND value LIKE '_backend/%';
         `
       }
     ];
