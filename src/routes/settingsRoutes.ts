@@ -8,8 +8,8 @@ const router = Router();
 // Default SharePoint paths
 const DEFAULT_SETTINGS = {
   clientsPath: 'Projects',
-  employeesPath: '_backend/Umbrella Report Config/site_employees',
-  equipmentPath: '_backend/Umbrella Report Config/equipment',
+  employeesPath: 'Umbrella Report Config/site_employees',
+  equipmentPath: 'Umbrella Report Config/equipment',
   reportsBasePath: 'Projects',
 };
 

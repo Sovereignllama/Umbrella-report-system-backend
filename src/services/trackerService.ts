@@ -12,7 +12,7 @@ import {
 
 
 
-const DEFAULT_CONFIG_BASE_PATH = '_backend/Umbrella Report Config';
+const DEFAULT_CONFIG_BASE_PATH = 'Umbrella Report Config';
 const MAX_CREW_ROWS = 12; // Maximum crew members per project block
 const MAX_EQUIPMENT_ROWS = 12; // Maximum equipment items per project block
 const MAX_SHEET_ROWS = 200; // Safety limit for scanning rows

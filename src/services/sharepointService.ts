@@ -10,7 +10,8 @@ dotenv.config();
 
 const GRAPH_API_BASE = 'https://graph.microsoft.com/v1.0';
 const SHAREPOINT_SITE_URL = process.env.SHAREPOINT_SITE_URL;
-const SHAREPOINT_DRIVE_ID = process.env.SHAREPOINT_DRIVE_ID;
+const SHAREPOINT_DRIVE_ID = process.env.SHAREPOINT_DRIVE_ID; // Shared Documents - writes
+const SHAREPOINT_CONFIG_DRIVE_ID = process.env.SHAREPOINT_CONFIG_DRIVE_ID || process.env.SHAREPOINT_DRIVE_ID; // backend library - reads (falls back to main drive if not set)
 
 // Credential for service account (app-only auth)
 let graphClient: AxiosInstance | null = null;
@@ -568,7 +569,7 @@ export async function getFolderByPath(folderPath: string): Promise<SharePointDri
     const encodedPath = folderPath.split('/').map(encodeURIComponent).join('/');
     
     const response = await client.get<SharePointDriveItem>(
-      `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}`
+      `/drives/${SHAREPOINT_CONFIG_DRIVE_ID}/root:/${encodedPath}`
     );
     
     return response.data;
@@ -606,7 +607,7 @@ export async function listFilesInFolder(folderPath: string): Promise<SharePointD
         const encodedPath = folderPath.split('/').map(encodeURIComponent).join('/');
         
         const response = await client.get<{ value: SharePointDriveItem[] }>(
-          `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}:/children`
+          `/drives/${SHAREPOINT_CONFIG_DRIVE_ID}/root:/${encodedPath}:/children`
         );
         
         setCache(cacheKey, response.data.value);
@@ -654,7 +655,7 @@ export async function readFileByPath(filePath: string): Promise<Buffer> {
         const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
         
         const response = await client.get(
-          `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}:/content`,
+          `/drives/${SHAREPOINT_CONFIG_DRIVE_ID}/root:/${encodedPath}:/content`,
           {
             responseType: 'arraybuffer',
           }
@@ -715,7 +716,7 @@ function buildWorkbookRangeUrl(itemId: string, sheetName: string, rangeAddress: 
   
   // For Graph Workbooks API, sheet names and range addresses are passed as string parameters
   // within the function syntax - they should not be URL-encoded
-  return `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodeURIComponent(itemId)}/workbook/worksheets('${sheetName}')/range(address='${rangeAddress}')`;
+  return `/drives/${SHAREPOINT_CONFIG_DRIVE_ID}/items/${encodeURIComponent(itemId)}/workbook/worksheets('${sheetName}')/range(address='${rangeAddress}')`;
 }
 
 /**
@@ -727,7 +728,7 @@ export async function getFileItemId(filePath: string): Promise<string | null> {
     const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
     
     const response = await client.get<SharePointDriveItem>(
-      `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}`
+      `/drives/${SHAREPOINT_CONFIG_DRIVE_ID}/root:/${encodedPath}`
     );
     
     return response.data.id;
@@ -814,7 +815,7 @@ export async function batchUpdateExcelRanges(
       
       // Build batch requests using the same URL construction as buildWorkbookRangeUrl
       let batchRequests = batch.map((update, idx) => {
-        const sheetUrl = `/drives/${SHAREPOINT_DRIVE_ID}/items/${encodedItemId}/workbook/worksheets('${update.sheetName}')/range(address='${update.rangeAddress}')`;
+        const sheetUrl = `/drives/${SHAREPOINT_CONFIG_DRIVE_ID}/items/${encodedItemId}/workbook/worksheets('${update.sheetName}')/range(address='${update.rangeAddress}')`;
         return {
           id: String(idx + 1),
           method: 'PATCH',
