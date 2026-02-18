@@ -52,6 +52,31 @@ const router = Router();
 // Constants
 const DEFAULT_SUPERVISOR_NAME = 'Unknown Supervisor';
 
+/**
+ * Helper: Get week folder name for a given date (Mon-Sun format)
+ * e.g., "Feb 2-8" or "Jan 27-Feb 2"
+ * This matches the same logic used in configRoutes.ts getCurrentWeekName()
+ */
+function getWeekFolderNameForDate(date: Date): string {
+  const dayOfWeek = date.getDay();
+  const monday = new Date(date);
+  monday.setDate(date.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+  monday.setHours(0, 0, 0, 0);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monMonth = months[monday.getMonth()];
+  const sunMonth = months[sunday.getMonth()];
+
+  if (monMonth === sunMonth) {
+    return `${monMonth} ${monday.getDate()}-${sunday.getDate()}`;
+  } else {
+    return `${monMonth} ${monday.getDate()}-${sunMonth} ${sunday.getDate()}`;
+  }
+}
+
 // ============================================
 // CHECK FOR EXISTING REPORT
 // ============================================
@@ -139,7 +164,7 @@ router.post(
         projectId,
         clientName,
         projectName,
-        weekFolder,
+        weekFolder: clientWeekFolder,
         reportDate,
         notes,
         laborLines,
@@ -157,18 +182,29 @@ router.post(
         return;
       }
 
+      // Compute the authoritative weekFolder from reportDate server-side
+      const parsedReportDate = new Date(reportDate);
+      const weekFolder = getWeekFolderNameForDate(parsedReportDate);
+
+      // Warn if client-supplied weekFolder doesn't match server-computed value
+      if (clientWeekFolder && clientWeekFolder !== weekFolder) {
+        console.warn(
+          `Week folder mismatch: client sent "${clientWeekFolder}" but server computed "${weekFolder}" for date ${reportDate}`
+        );
+      }
+
       // Check if report already exists for this client/project/date
       let existingReport = null;
       if (clientName && projectName) {
         existingReport = await DailyReportRepository.findByClientProjectDate(
           clientName,
           projectName,
-          new Date(reportDate)
+          parsedReportDate
         );
       } else if (projectId) {
         existingReport = await DailyReportRepository.findByProjectAndDate(
           projectId,
-          new Date(reportDate)
+          parsedReportDate
         );
       }
 
@@ -179,7 +215,7 @@ router.post(
           await DailyReportRepository.deleteArchivedByClientProjectDate(
             clientName,
             projectName,
-            new Date(reportDate)
+            parsedReportDate
           );
         }
         
@@ -269,7 +305,7 @@ router.post(
         clientName,
         projectName,
         weekFolder,
-        reportDate: new Date(reportDate),
+        reportDate: parsedReportDate,
         supervisorId,
         notes,
         materials,
