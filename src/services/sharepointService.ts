@@ -583,7 +583,8 @@ export async function getFolderByPath(folderPath: string): Promise<SharePointDri
 }
 
 /**
- * List files in a folder by path
+ * List files in a folder by path on the CONFIG drive (_backend library)
+ * Used for config reads: employees, equipment, templates
  * Uses in-flight deduplication to prevent duplicate concurrent API calls
  */
 export async function listFilesInFolder(folderPath: string): Promise<SharePointDriveItem[]> {
@@ -625,6 +626,54 @@ export async function listFilesInFolder(folderPath: string): Promise<SharePointD
       return [];
     }
     console.error(`Failed to list files in "${folderPath}":`, error);
+    throw error;
+  }
+}
+
+/**
+ * List files in a folder by path on the MAIN drive (Shared Documents)
+ * Used for listing clients/projects under the Projects/ folder
+ * Uses in-flight deduplication to prevent duplicate concurrent API calls
+ */
+export async function listFilesInMainFolder(folderPath: string): Promise<SharePointDriveItem[]> {
+  try {
+    const cacheKey = `listFilesMain:${folderPath}`;
+    const cached = getCached<SharePointDriveItem[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Deduplicate concurrent in-flight requests for the same folder
+    const inflight = inflightRequests.get(cacheKey);
+    if (inflight) {
+      return inflight;
+    }
+
+    const request = (async () => {
+      try {
+        const client = await getGraphClient();
+        
+        const encodedPath = folderPath.split('/').map(encodeURIComponent).join('/');
+        
+        const response = await client.get<{ value: SharePointDriveItem[] }>(
+          `/drives/${SHAREPOINT_DRIVE_ID}/root:/${encodedPath}:/children`
+        );
+        
+        setCache(cacheKey, response.data.value);
+        return response.data.value;
+      } finally {
+        inflightRequests.delete(cacheKey);
+      }
+    })();
+
+    inflightRequests.set(cacheKey, request);
+    return request;
+  } catch (error: any) {
+    if (error.response?.status === 404) {
+      console.warn(`Folder not found on main drive: ${folderPath}`);
+      return [];
+    }
+    console.error(`Failed to list files in main drive folder "${folderPath}":`, error);
     throw error;
   }
 }

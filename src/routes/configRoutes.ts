@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { AuthRequest } from '../types/auth';
 import { authMiddleware } from '../middleware';
-import { listFilesInFolder, readJsonFileByPath, readFileByPath, getOrCreateFolder } from '../services/sharepointService';
+import { listFilesInFolder, listFilesInMainFolder, readJsonFileByPath, readFileByPath, getOrCreateFolder } from '../services/sharepointService';
 import { getSetting } from './settingsRoutes';
 import { calculateHoursBreakdown, isStatHoliday, getWeekStart, getWeekEnd, getClientRules } from '../services/overtimeService';
 import { DailyReportRepository, ReportLaborLineRepository } from '../repositories';
@@ -56,7 +56,7 @@ function withTimeout(
 router.get('/clients', authMiddleware, withTimeout(async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const clientsPath = await getSetting('clientsPath') || DEFAULT_PROJECTS_BASE_PATH;
-    const folders = await listFilesInFolder(clientsPath);
+    const folders = await listFilesInMainFolder(clientsPath);
     
     // Filter to only folders (not files)
     const clients = folders
@@ -85,7 +85,7 @@ router.get('/clients/:clientName/projects', authMiddleware, async (req: AuthRequ
     const clientsPath = await getSetting('clientsPath') || DEFAULT_PROJECTS_BASE_PATH;
     const folderPath = `${clientsPath}/${clientName}`;
     
-    const folders = await listFilesInFolder(folderPath);
+    const folders = await listFilesInMainFolder(folderPath);
     
     // Filter to only folders
     const projects = folders
@@ -112,7 +112,7 @@ router.get('/clients/:clientName/projects/:projectName/weeks', authMiddleware, a
     const clientsPath = await getSetting('clientsPath') || DEFAULT_PROJECTS_BASE_PATH;
     const folderPath = `${clientsPath}/${clientName}/${projectName}`;
     
-    const folders = await listFilesInFolder(folderPath);
+    const folders = await listFilesInMainFolder(folderPath);
     
     // Filter to only folders
     const weeks = folders
