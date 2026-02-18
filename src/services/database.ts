@@ -245,6 +245,25 @@ export async function runMigrations(): Promise<void> {
           WHERE key = 'equipmentPath' 
             AND value = 'Umbrella Report Config/equipment';
         `
+      },
+      {
+        name: '017_fix_config_paths',
+        sql: `
+          -- Remove _backend/ prefix from config paths
+          -- The SHAREPOINT_CONFIG_DRIVE_ID now points directly to the backend library drive,
+          -- so paths should be relative to that drive's root (no _backend/ prefix needed)
+          UPDATE app_settings 
+          SET value = 'Umbrella Report Config/site_employees',
+              updated_at = NOW()
+          WHERE key = 'employeesPath' 
+            AND value LIKE '_backend/%';
+
+          UPDATE app_settings 
+          SET value = 'Umbrella Report Config/equipment',
+              updated_at = NOW()
+          WHERE key = 'equipmentPath' 
+            AND value LIKE '_backend/%';
+        `
       }
     ];
 
