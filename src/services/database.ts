@@ -264,6 +264,12 @@ export async function runMigrations(): Promise<void> {
           WHERE key = 'equipmentPath' 
             AND value LIKE '_backend/%';
         `
+      },
+      {
+        name: '018_add_on_loa_to_labor_lines',
+        sql: `
+          ALTER TABLE report_labor_lines ADD COLUMN IF NOT EXISTS on_loa BOOLEAN DEFAULT false;
+        `
       }
     ];
 

@@ -214,6 +214,7 @@ router.post(
         startTime: line.start_time || line.startTime || null,
         endTime: line.end_time || line.endTime || null,
         thirtyMinDeduction: line.thirty_min_deduction || line.thirtyMinDeduction || false,
+        loa: line.loa || false,
       }));
 
       // Map equipment lines to the expected format
@@ -398,6 +399,8 @@ router.get(
         dtHours: line.dt_hours || line.dtHours,
         workDescription: line.work_description || line.workDescription,
         thirtyMinDeduction: line.thirty_min_deduction || line.thirtyMinDeduction || false,
+        onLoa: line.on_loa || line.onLoa || false,
+        loa: line.on_loa || line.onLoa || false,  // also expose as 'loa' for frontend compatibility
       }));
 
       res.json({
