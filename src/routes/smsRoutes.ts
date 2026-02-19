@@ -122,7 +122,7 @@ router.post('/incoming', async (req: Request, res: Response): Promise<void> => {
     // Navigate to existing Track/sign_in_out folder, then create year/month as needed
     console.log(`📁 Creating SharePoint folder structure: Track/sign_in_out/${year}/${monthName}/`);
     
-    const signInOutFolder = await getFolderByPath('Track/sign_in_out');
+    const signInOutFolder = await getFolderByPath('Track/sign_in_out', process.env.SHAREPOINT_DRIVE_ID!);
     if (!signInOutFolder) {
       throw new Error('Track/sign_in_out folder not found in SharePoint');
     }
