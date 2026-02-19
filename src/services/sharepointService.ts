@@ -560,7 +560,7 @@ export async function validateSharePointConfig(): Promise<boolean> {
 /**
  * Get folder by path (e.g., "Documents/Umbrella Report Config/site_employees")
  */
-export async function getFolderByPath(folderPath: string): Promise<SharePointDriveItem | null> {
+export async function getFolderByPath(folderPath: string, driveId: string = SHAREPOINT_CONFIG_DRIVE_ID!): Promise<SharePointDriveItem | null> {
   try {
     const client = await getGraphClient();
     
@@ -569,7 +569,7 @@ export async function getFolderByPath(folderPath: string): Promise<SharePointDri
     const encodedPath = folderPath.split('/').map(encodeURIComponent).join('/');
     
     const response = await client.get<SharePointDriveItem>(
-      `/drives/${SHAREPOINT_CONFIG_DRIVE_ID}/root:/${encodedPath}`
+      `/drives/${driveId}/root:/${encodedPath}`
     );
     
     return response.data;
