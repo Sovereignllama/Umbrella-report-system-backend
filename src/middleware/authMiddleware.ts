@@ -164,3 +164,8 @@ export function requireSupervisor(
  * Middleware to require time access (supervisor, boss, manager, or time role)
  */
 export const requireTimeAccess = requireRole('supervisor', 'boss', 'manager', 'time');
+
+/**
+ * Middleware to require admin or boss role only
+ */
+export const requireAdminOrBoss = requireRole('boss');
